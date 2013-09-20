@@ -13,6 +13,8 @@ import android.content.pm.ActivityInfo;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.WindowManager;
 import android.content.Context;
 import android.util.Log;
 
@@ -247,7 +249,22 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         GLES20.glEnableVertexAttribArray(maTextureHandle);
         checkGlError("glEnableVertexAttribArray maTextureHandle");
 
-        Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mVMatrix, 0);
+        // Create a rotation for the geometry.        
+        float vflip = -1.0f;
+        int orientation = 0;
+        if (mContext != null) {
+            WindowManager wm = (WindowManager)mContext.getSystemService(
+                    Context.WINDOW_SERVICE);
+
+            orientation = (((int)(wm.getDefaultDisplay().getRotation()) + 1) * 90) % 360;
+            //Log.d(TAG, "corrected orientation:" + orientation);
+            if (orientation==180 || orientation==0)
+                orientation = (orientation + 180) % 360;
+        }       
+        Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
+        
+        Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mRotationMatrix, 0);
+        Matrix.multiplyMM(mMVPMatrix, 0, mMVPMatrix, 0, mVMatrix, 0);        
 
         GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0);
         GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
@@ -298,13 +315,13 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
         muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix");
         checkGlError("glGetUniformLocation uSTMatrix");
-        if (muMVPMatrixHandle == -1) {
+        if (muSTMatrixHandle == -1) {
             throw new RuntimeException("Could not get attrib location for uSTMatrix");
         }
 
         muCRatioHandle = GLES20.glGetUniformLocation(mProgram, "uCRatio");
         checkGlError("glGetUniformLocation uCRatio");
-        if (muMVPMatrixHandle == -1) {
+        if (muCRatioHandle == -1) {
             throw new RuntimeException("Could not get attrib location for uCRatio");
         }
 
@@ -429,11 +446,11 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     private static final int TRIANGLE_VERTICES_DATA_POS_OFFSET = 0;
     private static final int TRIANGLE_VERTICES_DATA_UV_OFFSET = 3;
     private final float[] mTriangleVerticesData = {
-        // X, Y, Z, U, V
+        //  X ---- Y- Z -- U -- V
         -1.0f, -1.0f, 0, 0.f, 0.f,
-        1.0f, -1.0f, 0, 1.f, 0.f,
+         1.0f, -1.0f, 0, 1.f, 0.f,
         -1.0f,  1.0f, 0, 0.f, 1.f,
-        1.0f,   1.0f, 0, 1.f, 1.f,
+         1.0f,  1.0f, 0, 1.f, 1.f,
     };
 
     private FloatBuffer mTriangleVertices;
@@ -465,7 +482,8 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     private float[] mProjMatrix = new float[16];
     private float[] mVMatrix = new float[16];
     private float[] mSTMatrix = new float[16];
-
+    private float[] mRotationMatrix = new float[16];
+    
     private int mProgram;
     private int mTextureID;
     private int muMVPMatrixHandle;
