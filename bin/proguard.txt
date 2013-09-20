@@ -1,3 +1,0 @@
-# view AndroidManifest.xml #generated:7
--keep class com.android.gl2cameraeye.GL2CameraEyeActivity { <init>(...); }
-

@@ -11,6 +11,7 @@ import javax.microedition.khronos.opengles.GL10;
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.content.Context;
 import android.util.Log;
@@ -24,10 +25,6 @@ import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 
 import android.hardware.Camera;
-import android.hardware.SensorManager;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.Sensor;
 import java.util.Iterator;
 import java.util.List;
 import android.hardware.Camera;
@@ -39,7 +36,7 @@ public class GL2CameraEyeActivity extends Activity {
         super.onCreate(savedInstanceState);
         mGLView = new CamGLSurfaceView(this);
         setContentView(mGLView);
-        setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        //setRequestedOrientation (ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }
 
     @Override
@@ -57,7 +54,7 @@ public class GL2CameraEyeActivity extends Activity {
     private GLSurfaceView mGLView;
 }
 
-class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
+class CamGLSurfaceView extends GLSurfaceView {
     private static final String TAG = "CamGLSurfaceView";
 
     static class CaptureCapability {
@@ -72,9 +69,6 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
         setEGLContextClientVersion(2);
         mRenderer = new CamRenderer(context);
         setRenderer(mRenderer);
-
-        mSensorManager = (SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
-        mAcceleration = mSensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION);
     }
 
     public boolean onTouchEvent(final MotionEvent event) {
@@ -91,8 +85,6 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
         super.onPause();
         mCamera.stopPreview();
         mCamera.release();
-
-        mSensorManager.unregisterListener(this);
     }
 
     @Override
@@ -101,9 +93,9 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
         Camera.Parameters parameters = mCamera.getParameters();
         
         
-        int frameRate = 30;
-        int height = 720;
-        int width = 1280;
+        int frameRate = 60;
+        int height = 480;
+        int width = 640;
         
         //////////////////////////////////////////////////////////////////
         // Calculate fps.
@@ -121,17 +113,18 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
         int newFrameRate = (fpsMin + 999) / 1000;
         while (itFpsRange.hasNext()) {
             fpsRange = (int[])itFpsRange.next();
+            Log.d(TAG, "fps range available from " + fpsRange[0] + " to " + fpsRange[1]);
             if (fpsRange[0] <= frameRateInMs &&
                 frameRateInMs <= fpsRange[1]) {
                 fpsMin = fpsRange[0];
                 fpsMax = fpsRange[1];
-                Log.d(TAG, "fps range selected from " + fpsMin + " to " + fpsMax);
                 newFrameRate = frameRate;
-                break;
+                //break;
             }
         }
+        //fpsMin = fpsMax = 24000;
         frameRate = newFrameRate;
-        Log.d(TAG, "allocate: fps set to " + frameRate);
+        Log.d(TAG, "allocate: fps set to " + fpsMin + " - " + fpsMax);
 
         mCurrentCapability = new CaptureCapability();
         mCurrentCapability.mDesiredFps = frameRate;
@@ -165,7 +158,7 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
         Log.d(TAG, "allocate: matched width=" + matchedWidth + ", height=" + matchedHeight);
 
         //calculateImageFormat(matchedWidth, matchedHeight);
-       int mImageFormat = ImageFormat.YV12;
+        int mImageFormat = ImageFormat.YV12;
 
         parameters.setPreviewSize(matchedWidth, matchedHeight);
         parameters.setPreviewFormat(mImageFormat);
@@ -181,29 +174,10 @@ class CamGLSurfaceView extends GLSurfaceView implements SensorEventListener {
                     mRenderer.setCamera(mCamera);
                 }});
 
-        mSensorManager.registerListener(this, mAcceleration, SensorManager.SENSOR_DELAY_GAME);
         super.onResume();
     }
-
-    public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() == Sensor.TYPE_LINEAR_ACCELERATION) {
-            final float[] accelerationVector = event.values;
-            queueEvent(new Runnable(){
-                    public void run() {
-                        mRenderer.setAcceleration(accelerationVector);
-                    }});
-        }
-    }
-
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-        // Ignoring sensor accuracy changes.
-    }
-
     CamRenderer mRenderer;
     Camera mCamera;
-
-    SensorManager mSensorManager;
-    Sensor mAcceleration;
 }
 
 class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener {
@@ -216,17 +190,10 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         mTriangleVertices.put(mTriangleVerticesData).position(0);
 
         Matrix.setIdentityM(mSTMatrix, 0);
-        Matrix.setIdentityM(mMMatrix, 0);
 
-        float[] defaultAcceleration = {0.f,0.f,0.f};
-        setAcceleration(defaultAcceleration);
         mPos[0] = 0.f;
         mPos[1] = 0.f;
-        mPos[2] = 0.f;
-        mVel[0] = 0.f;
-        mVel[1] = 0.f;
-        mVel[2] = 0.f;
-
+        mPos[2] = 0.f;        
     }
 
     /* The following set methods are not synchronized, so should only
@@ -237,21 +204,12 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         mPos[0] = (x*2-1)*mRatio;
         mPos[1] = (-y)*2+1;
         mPos[2] = 0.f;
-        mVel[0] = 0;
-        mVel[1] = 0;
-        mVel[2] = 0;
     }
 
     public void setCamera(Camera camera) {
         mCamera = camera;
         Camera.Size previewSize = camera.getParameters().getPreviewSize();
         mCameraRatio = (float)previewSize.width/previewSize.height;
-    }
-
-    public void setAcceleration(float[] accelerationVector) {
-        mGForce[0] = accelerationVector[0];
-        mGForce[1] = accelerationVector[1];
-        mGForce[2] = accelerationVector[2];
     }
 
     public void onDrawFrame(GL10 glUnused) {
@@ -261,7 +219,6 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
                 mSurface.getTransformMatrix(mSTMatrix);
                 long timestamp = mSurface.getTimestamp();
-                doPhysics(timestamp);
 
                 updateSurface = false;
             }
@@ -290,8 +247,6 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         GLES20.glEnableVertexAttribArray(maTextureHandle);
         checkGlError("glEnableVertexAttribArray maTextureHandle");
 
-        //Matrix.multiplyMM(mMVPMatrix, 0, mVMatrix, 0, mMMatrix, 0);
-        //Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mMVPMatrix, 0);
         Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mVMatrix, 0);
 
         GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0);
@@ -407,55 +362,14 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
          * data available.  Call may come in from some random thread,
          * so let's be safe and use synchronize. No OpenGL calls can be done here.
          */
-        long currentTime = System.currentTimeMillis();
-        Log.d(TAG, "ellapsed time in ms :" +  (currentTime- previousTime) );
+        long currentTime = SystemClock.elapsedRealtimeNanos();
+        long elapsedTimeInMs = (currentTime- previousTime)/1000000;
+        Log.d(TAG, "ellapsed time :" + elapsedTimeInMs  + "ms -> " 
+              + (float)(1000/elapsedTimeInMs) + "fps");
         previousTime = currentTime;
         updateSurface = true;
     }
-
-    private void doPhysics(long timestamp) {
-        /*
-         * Move the camera surface around based on some simple spring physics with drag
-         */
-
-        if (mLastTime == 0)
-            mLastTime = timestamp;
-
-        float deltaT = (timestamp - mLastTime)/1000000000.f; // To seconds
-
-        float springStrength = 20.f;
-        float frictionCoeff = 10.f;
-        float mass = 10.f;
-        float gMultiplier = 4.f;
-        /* Only update physics every 30 ms */
-        if (deltaT > 0.030f) {
-            mLastTime = timestamp;
-
-            float[] totalForce = new float[3];
-            totalForce[0] = -mPos[0] * springStrength - mVel[0]*frictionCoeff + gMultiplier*mGForce[0]*mass;
-            totalForce[1] = -mPos[1] * springStrength - mVel[1]*frictionCoeff + gMultiplier*mGForce[1]*mass;
-            totalForce[2] = -mPos[2] * springStrength - mVel[2]*frictionCoeff + gMultiplier*mGForce[2]*mass;
-
-            float[] accel = new float[3];
-            accel[0] = totalForce[0]/mass;
-            accel[1] = totalForce[1]/mass;
-            accel[2] = totalForce[2]/mass;
-
-            /* Not a very accurate integrator */
-            mVel[0] = mVel[0] + accel[0]*deltaT;
-            mVel[1] = mVel[1] + accel[1]*deltaT;
-            mVel[2] = mVel[2] + accel[2]*deltaT;
-
-            mPos[0] = mPos[0] + mVel[0]*deltaT;
-            mPos[1] = mPos[1] + mVel[1]*deltaT;
-            mPos[2] = mPos[2] + mVel[2]*deltaT;
-
-            Matrix.setIdentityM(mMMatrix, 0);
-            Matrix.translateM(mMMatrix, 0, mPos[0], mPos[1], mPos[2]);
-        }
-
-    }
-
+    
     private int loadShader(int shaderType, String source) {
         int shader = GLES20.glCreateShader(shaderType);
         if (shader != 0) {
@@ -531,29 +445,24 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         "attribute vec4 aPosition;\n" +
         "attribute vec4 aTextureCoord;\n" +
         "varying vec2 vTextureCoord;\n" +
-        "varying vec2 vTextureNormCoord;\n" +
         "void main() {\n" +
         "  vec4 scaledPos = aPosition;\n" +
         "  scaledPos.x = scaledPos.x * uCRatio;\n" +
         "  gl_Position = uMVPMatrix * scaledPos;\n" +
         "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
-        "  vTextureNormCoord = aTextureCoord.xy;\n" +
         "}\n";
 
     private final String mFragmentShader =
         "#extension GL_OES_EGL_image_external : require\n" +
         "precision mediump float;\n" +
         "varying vec2 vTextureCoord;\n" +
-        "varying vec2 vTextureNormCoord;\n" +
         "uniform samplerExternalOES sTexture;\n" +
         "void main() {\n" +
         "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
-        //"  gl_FragColor.a = 1.0-min(length(vTextureNormCoord-0.5)*2.0,1.0);\n" +
         "}\n";
 
     private float[] mMVPMatrix = new float[16];
     private float[] mProjMatrix = new float[16];
-    private float[] mMMatrix = new float[16];
     private float[] mVMatrix = new float[16];
     private float[] mSTMatrix = new float[16];
 
@@ -567,9 +476,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
     private float mRatio = 1.0f;
     private float mCameraRatio = 1.0f;
-    private float[] mVel = new float[3];
     private float[] mPos = new float[3];
-    private float[] mGForce = new float[3];
 
     private long mLastTime;
 
