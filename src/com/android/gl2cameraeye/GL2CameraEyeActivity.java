@@ -325,7 +325,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
             mCameraInfo = new Camera.CameraInfo();
             Camera.getCameraInfo(mCameraId, mCameraInfo); 
             if (mCameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
-                vflip = 0.0f;
+                vflip = -1.0f;
         }       
         Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
         
@@ -338,6 +338,17 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         checkGlError("glDrawArrays");
+
+
+        //long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
+        // GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA,
+        //        GLES20.GL_UNSIGNED_BYTE, mBuffer);
+        // checkGlError("glReadPixels");
+
+        //long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
+        //long elapsed_time =
+        //    (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
+        //Log.d(TAG, "ellapsed time :" + elapsed_time + "ms");
     }
 
     public void onSurfaceChanged(GL10 glUnused, int width, int height) {
@@ -347,6 +358,9 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         GLES20.glViewport(0, 0, width, height);
         mRatio = (float) width / height;
         Matrix.frustumM(mProjMatrix, 0, -mRatio, mRatio, -1, 1, 3, 7);
+
+        // Hardcoded 4bytes per pixel for RGBA.
+        //mBuffer = ByteBuffer.allocate(width * height * 4);
     }
 
     public void onSurfaceCreated(GL10 glUnused, EGLConfig config) {
@@ -571,6 +585,8 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     private Camera.CameraInfo mCameraInfo = null;
     private int mCameraId;
     private boolean updateSurface = false;
+    
+    //private ByteBuffer mBuffer = null;
 
     private Context mContext;
     private static String TAG = "CamRenderer";
