@@ -276,6 +276,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     }
 
     public void onDrawFrame(GL10 glUnused) {
+        boolean localUpdateSurface = false;
         synchronized(this) {
             if (updateSurface) {
                 mSurface.updateTexImage();
@@ -284,6 +285,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
                 long timestamp = mSurface.getTimestamp();
 
                 updateSurface = false;
+                localUpdateSurface = true;
             }
         }
 
@@ -339,28 +341,30 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         checkGlError("glDrawArrays");
 
+        if (localUpdateSurface) {
+            long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
+            GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA, 
+                 GLES20.GL_UNSIGNED_BYTE, mBuffer);
+            checkGlError("glReadPixels");
 
-        //long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
-        // GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA,
-        //        GLES20.GL_UNSIGNED_BYTE, mBuffer);
-        // checkGlError("glReadPixels");
-
-        //long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
-        //long elapsed_time =
-        //    (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
-        //Log.d(TAG, "ellapsed time :" + elapsed_time + "ms");
+            long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
+            long elapsed_time =
+                (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
+            Log.d(TAG, "glReadPixels ellapsed time :" + elapsed_time + "ms");
+            localUpdateSurface = false;
+        }
     }
 
     public void onSurfaceChanged(GL10 glUnused, int width, int height) {
-        Log.d(TAG, "onSurfaceChanged ");
+        Log.d(TAG, "onSurfaceChanged, viewport " + width + "x" + height);
         // Ignore the passed-in GL10 interface, and use the GLES20
         // class's static methods instead.
         GLES20.glViewport(0, 0, width, height);
         mRatio = (float) width / height;
         Matrix.frustumM(mProjMatrix, 0, -mRatio, mRatio, -1, 1, 3, 7);
 
-        // Hardcoded 4bytes per pixel for RGBA.
-        //mBuffer = ByteBuffer.allocate(width * height * 4);
+        // Hardcoded 4bytes per pixel for RGBA.        
+        mBuffer = ByteBuffer.allocate(640 * 480 * 4);
     }
 
     public void onSurfaceCreated(GL10 glUnused, EGLConfig config) {
@@ -444,7 +448,6 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         } catch (Exception t) {
             Log.e(TAG, "Error setting camera preview surface or starting it: " + t);
         }
-
 
         Matrix.setLookAtM(mVMatrix, 0, 0, 0, 5f, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
 
@@ -586,7 +589,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     private int mCameraId;
     private boolean updateSurface = false;
     
-    //private ByteBuffer mBuffer = null;
+    private ByteBuffer mBuffer = null;
 
     private Context mContext;
     private static String TAG = "CamRenderer";
