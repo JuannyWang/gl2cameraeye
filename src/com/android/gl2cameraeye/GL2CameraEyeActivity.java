@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import android.hardware.Camera;
+import android.hardware.Camera.Face;
 
 
 public class GL2CameraEyeActivity extends Activity {
@@ -241,7 +242,7 @@ class CamGLSurfaceView extends GLSurfaceView {
     }
 }
 
-class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener {     
+class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener, Camera.FaceDetectionListener {     
     public CamRenderer(Context context) {
         Log.d(TAG, "constructor ");
         mContext = context;
@@ -342,15 +343,15 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         checkGlError("glDrawArrays");
 
         if (localUpdateSurface) {
-            long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
-            GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA, 
-                 GLES20.GL_UNSIGNED_BYTE, mBuffer);
-            checkGlError("glReadPixels");
+            //long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
+            //GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA, 
+            //     GLES20.GL_UNSIGNED_BYTE, mBuffer);
+            //checkGlError("glReadPixels");
 
-            long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
-            long elapsed_time =
-                (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
-            Log.d(TAG, "glReadPixels ellapsed time :" + elapsed_time + "ms");
+            //long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
+            //long elapsed_time =
+            //    (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
+            //Log.d(TAG, "glReadPixels ellapsed time :" + elapsed_time + "ms");
             localUpdateSurface = false;
         }
     }
@@ -365,6 +366,28 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
         // Hardcoded 4bytes per pixel for RGBA.        
         mBuffer = ByteBuffer.allocate(640 * 480 * 4);
+    
+        try {
+            mCamera.stopPreview();
+        } catch (Exception e) {
+            // ignore: tried to stop a non-existent preview
+            Log.d(TAG, "Error stopping camera preview: " + e.getMessage());
+        }
+        try {
+            mCamera.setPreviewTexture(mSurface);
+            mCamera.startPreview();
+            mCamera.setFaceDetectionListener(this);
+            // Try starting Face Detection
+            Camera.Parameters params = mCamera.getParameters();
+            // start face detection only *after* preview has started
+            if (params.getMaxNumDetectedFaces() > 0){
+                // camera supports face detection, so can start it:
+                mCamera.startFaceDetection();
+            }
+        } catch (Exception e) {
+            // ignore: tried to stop a non-existent preview
+            Log.d(TAG, "Error starting camera preview: " + e.getMessage());
+        }
     }
 
     public void onSurfaceCreated(GL10 glUnused, EGLConfig config) {
@@ -448,6 +471,16 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         } catch (Exception t) {
             Log.e(TAG, "Error setting camera preview surface or starting it: " + t);
         }
+        
+        mCamera.setFaceDetectionListener(this);
+        // Try starting Face Detection
+        Camera.Parameters params = mCamera.getParameters();
+        // start face detection only *after* preview has started
+        if (params.getMaxNumDetectedFaces() > 0){
+            // camera supports face detection, so can start it:
+            mCamera.startFaceDetection();
+            Log.d(TAG, "Starting Face Detection");
+        }
 
         Matrix.setLookAtM(mVMatrix, 0, 0, 0, 5f, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
 
@@ -470,6 +503,15 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
               + (float)(1000/elapsedTimeInMs) + "fps");
         previousTime = currentTime;
         updateSurface = true;
+    }
+
+    @Override
+    public void onFaceDetection(Face[] faces, Camera camera) {
+        if (faces.length > 0){
+            Log.d(TAG, "face detected: "+ faces.length +
+                    " Face 1 Location X: " + faces[0].rect.centerX() +
+                    "Y: " + faces[0].rect.centerY() );
+        }
     }
     
     private int loadShader(int shaderType, String source) {
@@ -554,53 +596,39 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
         "}\n";
 
+    private final String mFragmentShader =
+            "#extension GL_OES_EGL_image_external : require\n" +
+            "precision mediump float;\n" +
+            "varying vec2 vTextureCoord;\n" +
+            "uniform samplerExternalOES sTexture;\n" +
+            "void main() {\n" +
+            "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+            "}\n";
+    
+    
     // The fragment shader converts RGB into YUYV. The ouptut is smaller than
     // the input, since 2 pixels RGBARGBA are transformed into YUYV, and this
     // for every row (no vertical downsampling). The output (the framebuffer)
     // is thus packed, and the used part would be (width/2 x height).
-    private final String mFragmentShader =
-        "#extension GL_OES_EGL_image_external : require\n" +
-        "precision mediump float;\n" +
-        "varying vec2 vTextureCoord;\n" +
-        "uniform samplerExternalOES sTexture;\n" +
-        "const vec3 coeff_y = vec3(0.3, 0.59, 0.11);\n" +
-        "const vec3 coeff_u = vec4(0.439, -0.368, -0.071);\n" +
-        "const vec3 coeff_v = vec4(-0.148, -0.291, 0.439);\n" +
-        "vec2 wrapped_texCoord;\n" +
-        "void main() {\n" +
-        "  float fx,fy;" +
-        "  fx = gl_TexCoord[0].x;" +
-        "  fy = gl_TexCoord[0].y;" +        
-        "  float y_0 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
-        "  float u_0 = dot(coeff_u, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
-        "  float y_1 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
-        "  float v_1 = dot(coeff_v, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
-        "  gl_FragColor = vec4(y_0, u_0, y_1, v_1);\n"+    
-        "}\n";
-
-    #extension GL_ARB_texture_rectangle : enable
-    uniform sampler2DRect tex;
-    void main(void) {
-      float fx,fy,r,g,b,r2,g2,b2,y1,y2,u,v;
-      fx = gl_TexCoord[0].x;
-      fy = gl_TexCoord[0].y;
-      r=texture2DRect(tex,vec2(fx*2.0,fy)).r;
-      g=texture2DRect(tex,vec2(fx*2.0,fy)).g;
-      b=texture2DRect(tex,vec2(fx*2.0,fy)).b;
-      r2=texture2DRect(tex,vec2(fx*2.0+1.0,fy)).r;
-      g2=texture2DRect(tex,vec2(fx*2.0+1.0,fy)).g;
-      b2=texture2DRect(tex,vec2(fx*2.0+1.0,fy)).b;
-      y1=0.299011*r + 0.586987*g + 0.114001*b;
-      y2=0.299011*r2 + 0.586987*g2 + 0.114001*b2;
-      u=-0.148246*r -0.29102*g + 0.439266*b;
-      v=0.439271*r - 0.367833*g - 0.071438*b ;
-      y1=0.858885*y1 + 0.0625;
-      y2=0.858885*y2 + 0.0625;
-      u=u + 0.5;
-      v=v + 0.5;
-      /* "%s" replaced with "y2,u,y1,v" in conversion to piglit (yuy2 version) */
-      gl_FragColor=vec4(y2,u,y1,v);
-    }
+//    private final String mFragmentShader =
+//        "#extension GL_OES_EGL_image_external : require\n" +
+//        "precision mediump float;\n" +
+//        "varying vec2 vTextureCoord;\n" +
+//        "uniform samplerExternalOES sTexture;\n" +
+//        "const vec3 coeff_y = vec3(0.3, 0.59, 0.11);\n" +
+//        "const vec3 coeff_u = vec4(0.439, -0.368, -0.071);\n" +
+//        "const vec3 coeff_v = vec4(-0.148, -0.291, 0.439);\n" +
+//        "vec2 wrapped_texCoord;\n" +
+//        "void main() {\n" +
+//        "  float fx,fy;" +
+//        "  fx = gl_TexCoord[0].x;" +
+//        "  fy = gl_TexCoord[0].y;" +        
+//        "  float y_0 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
+//        "  float u_0 = dot(coeff_u, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
+//        "  float y_1 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
+//        "  float v_1 = dot(coeff_v, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
+//        "  gl_FragColor = vec4(y_0, u_0, y_1, v_1);\n"+    
+//        "}\n";
     
     private float[] mMVPMatrix = new float[16];
     private float[] mProjMatrix = new float[16];
