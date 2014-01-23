@@ -41,23 +41,23 @@ public class GL2CameraEyeActivity extends Activity {
     private static final String TAG = "GL2CameraEyeActivity";
     private Camera.CameraInfo mCameraInfo = null;
     private int chosenCameraId = -1;
-    
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "constructor ");
-        
+
         if (chosenCameraId == -1){
             List<String> cameraList = new ArrayList<String>();
             mCameraInfo = new Camera.CameraInfo();
-            for (int i=0; i < Camera.getNumberOfCameras(); ++i) {            
+            for (int i=0; i < Camera.getNumberOfCameras(); ++i) {
                 Camera.getCameraInfo(i, mCameraInfo);
                 cameraList.add( "Cam " + i + ":" + (mCameraInfo.facing ==
                         Camera.CameraInfo.CAMERA_FACING_FRONT ? "front" : "back"));
-            }        
-        
+            }
+
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
-            builder.setTitle("Choose camera");        
+            builder.setTitle("Choose camera");
             builder.setItems(cameraList.toArray(new CharSequence[cameraList.size()]), new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface dialog, int which) {
                     // The 'which' argument contains the index position
@@ -86,50 +86,35 @@ public class GL2CameraEyeActivity extends Activity {
         if (mGLView != null)
             mGLView.onResume();
     }
-    
+
     protected void createContextAndStartCamera(int cameraId){
         Log.d(TAG, "createContextAndStartCamera: " + cameraId);
-        
-        mGLView = new CamGLSurfaceView(this, cameraId);
-        setContentView(mGLView);                    
+
+        mGLView = new VideoCaptureGLSurfaceView(this, cameraId);
+        setContentView(mGLView);
     }
 
     // GLSurfaceView cannot be initialised before getting the camera to use.
-    private GLSurfaceView mGLView = null;
+    private VideoCaptureGLSurfaceView mGLView = null;
 }
 
-class CamGLSurfaceView extends GLSurfaceView {
-    private static final String TAG = "CamGLSurfaceView";
-    CamRenderer mRenderer;
+class VideoCaptureGLSurfaceView extends GLSurfaceView {
+    private static final String TAG = "VideoCaptureGLSurfaceView";
+    VideoCaptureGLRenderer mRenderer;
     Camera mCamera;
     private int mCameraId;
 
-    static class CaptureCapability {
-        public int mWidth = 0;
-        public int mHeight = 0;
-        public int mDesiredFps = 0;
-    }
-    CaptureCapability mCurrentCapability = null;
-    
-    public CamGLSurfaceView(Context context, int cameraId) {
+    public VideoCaptureGLSurfaceView(Context context, int cameraId) {
         super(context);
         Log.d(TAG, "constructor");
         setEGLContextClientVersion(2);
 
-        openAndConfigureCamera(cameraId);        
+        mCameraId = cameraId;
+        openAndConfigureCamera();
 
-        mRenderer = new CamRenderer(context);
+        mRenderer = new VideoCaptureGLRenderer(context);
         mRenderer.setCamera(mCamera, cameraId);
         setRenderer(mRenderer);
-    }
-
-    public boolean onTouchEvent(final MotionEvent event) {
-        queueEvent(new Runnable(){
-                public void run() {
-                mRenderer.setPosition(event.getX() / getWidth(),
-                                      event.getY() / getHeight());
-            }});
-        return true;
     }
 
     @Override
@@ -143,7 +128,7 @@ class CamGLSurfaceView extends GLSurfaceView {
     @Override
     public void onResume() {
         Log.d(TAG, "onResume ");
-        openAndConfigureCamera(mCameraId);
+        openAndConfigureCamera();
         // Next time we are scheduled, hit the setCamera.
         queueEvent(new Runnable(){
                 public void run() {
@@ -153,97 +138,19 @@ class CamGLSurfaceView extends GLSurfaceView {
         super.onResume();
     }
 
-    private void openAndConfigureCamera(int cameraId){
-        mCameraId = cameraId;
+    private void openAndConfigureCamera(){
         Log.d(TAG, "openAndConfigureCamera ");
-        Log.d(TAG, "Opening camera " + mCameraId);
-        try {
-            mCamera = Camera.open(mCameraId);
-        } catch (RuntimeException e) {
-            Log.e(TAG, "Error opening camera: " + e);
-        }
+        mCamera = Camera.open(mCameraId);
         Camera.Parameters parameters = mCamera.getParameters();
-
-
-        int frameRate = 60;
-        int height = 480;
-        int width = 640;
-
-        //////////////////////////////////////////////////////////////////
-        // Calculate fps.
-        List<int[]> listFpsRange = parameters.getSupportedPreviewFpsRange();
-        if (listFpsRange == null || listFpsRange.size() == 0) {
-            Log.e(TAG, "allocate: no fps range found");
-            return;
-        }
-        int frameRateInMs = frameRate * 1000;
-        Iterator itFpsRange = listFpsRange.iterator();
-        int[] fpsRange = (int[])itFpsRange.next();
-        // Use the first range as default.
-        int fpsMin = fpsRange[0];
-        int fpsMax = fpsRange[1];
-        int newFrameRate = (fpsMin + 999) / 1000;
-        while (itFpsRange.hasNext()) {
-            fpsRange = (int[])itFpsRange.next();
-            Log.d(TAG, "fps range available from " + fpsRange[0] + " to " + fpsRange[1]);
-            if (fpsRange[0] <= frameRateInMs &&
-                    frameRateInMs <= fpsRange[1]) {
-                fpsMin = fpsRange[0];
-                fpsMax = fpsRange[1];
-                newFrameRate = frameRate;
-                //break;
-            }
-        }
-        //fpsMin = fpsMax = 24000;
-        frameRate = newFrameRate;
-        Log.d(TAG, "allocate: fps set to " + fpsMin + " - " + fpsMax);
-
-        mCurrentCapability = new CaptureCapability();
-        mCurrentCapability.mDesiredFps = frameRate;
-
-        // Calculate size.
-        List<Camera.Size> listCameraSize =
-                parameters.getSupportedPreviewSizes();
-        int minDiff = Integer.MAX_VALUE;
-        int matchedWidth = width;
-        int matchedHeight = height;
-        Iterator itCameraSize = listCameraSize.iterator();
-        while (itCameraSize.hasNext()) {
-            Camera.Size size = (Camera.Size)itCameraSize.next();
-            int diff = Math.abs(size.width - width) +
-                    Math.abs(size.height - height);
-            Log.d(TAG, "allocate: support resolution (" +
-                    size.width + ", " + size.height + "), diff=" + diff);
-            if (diff < minDiff ){
-                minDiff = diff;
-                matchedWidth = size.width;
-                matchedHeight = size.height;
-            }
-        }
-        if (minDiff == Integer.MAX_VALUE) {
-            Log.e(TAG, "allocate: can not find a resolution whose width " +
-                    "is multiple of 32");
-            return;
-        }
-        mCurrentCapability.mWidth = matchedWidth;
-        mCurrentCapability.mHeight = matchedHeight;
-        Log.d(TAG, "allocate: matched width=" + matchedWidth + ", height=" + matchedHeight);
-
-        //calculateImageFormat(matchedWidth, matchedHeight);
-        int mImageFormat = ImageFormat.YV12;
-
-        parameters.setPreviewSize(matchedWidth, matchedHeight);
-        parameters.setPreviewFormat(mImageFormat);
-        parameters.setPreviewFpsRange(fpsMin, fpsMax);
-        mCamera.setParameters(parameters);
-        //////////////////////////////////////////////////////////////////
-
+        parameters.setPreviewSize(640, 480);
+        parameters.setPreviewFormat(ImageFormat.YV12);
+        parameters.setPreviewFpsRange(15000, 15000);
         mCamera.setParameters(parameters);
     }
 }
 
-class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener, Camera.FaceDetectionListener {     
-    public CamRenderer(Context context) {
+class VideoCaptureGLRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener {
+    public VideoCaptureGLRenderer(Context context) {
         Log.d(TAG, "constructor ");
         mContext = context;
 
@@ -255,7 +162,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
         mPos[0] = 0.f;
         mPos[1] = 0.f;
-        mPos[2] = 0.f;        
+        mPos[2] = 0.f;
     }
 
     /* The following set methods are not synchronized, so should only
@@ -313,7 +220,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         GLES20.glEnableVertexAttribArray(maTextureHandle);
         checkGlError("glEnableVertexAttribArray maTextureHandle");
 
-        // Create a rotation for the geometry.        
+        // Create a rotation for the geometry.
         float vflip = -1.0f;
         int orientation = 0;
         if (mContext != null) {
@@ -324,16 +231,16 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
                 (((int)(wm.getDefaultDisplay().getRotation()) + 1) * 90) % 360;
             if (orientation==180 || orientation==0)
                 orientation = (orientation + 180) % 360;
-            
+
             mCameraInfo = new Camera.CameraInfo();
-            Camera.getCameraInfo(mCameraId, mCameraInfo); 
+            Camera.getCameraInfo(mCameraId, mCameraInfo);
             if (mCameraInfo.facing == Camera.CameraInfo.CAMERA_FACING_FRONT)
                 vflip = -1.0f;
-        }       
+        }
         Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
-        
+
         Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mRotationMatrix, 0);
-        Matrix.multiplyMM(mMVPMatrix, 0, mMVPMatrix, 0, mVMatrix, 0);        
+        Matrix.multiplyMM(mMVPMatrix, 0, mMVPMatrix, 0, mVMatrix, 0);
 
         GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0);
         GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
@@ -344,7 +251,7 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 
         if (localUpdateSurface) {
             //long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
-            //GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA, 
+            //GLES20.glReadPixels(0, 0, 640, 480, GLES20.GL_RGBA,
             //     GLES20.GL_UNSIGNED_BYTE, mBuffer);
             //checkGlError("glReadPixels");
 
@@ -364,9 +271,9 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         mRatio = (float) width / height;
         Matrix.frustumM(mProjMatrix, 0, -mRatio, mRatio, -1, 1, 3, 7);
 
-        // Hardcoded 4bytes per pixel for RGBA.        
+        // Hardcoded 4bytes per pixel for RGBA.
         mBuffer = ByteBuffer.allocate(640 * 480 * 4);
-    
+
         try {
             mCamera.stopPreview();
         } catch (Exception e) {
@@ -376,14 +283,6 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         try {
             mCamera.setPreviewTexture(mSurface);
             mCamera.startPreview();
-            mCamera.setFaceDetectionListener(this);
-            // Try starting Face Detection
-            Camera.Parameters params = mCamera.getParameters();
-            // start face detection only *after* preview has started
-            if (params.getMaxNumDetectedFaces() > 0){
-                // camera supports face detection, so can start it:
-                mCamera.startFaceDetection();
-            }
         } catch (Exception e) {
             // ignore: tried to stop a non-existent preview
             Log.d(TAG, "Error starting camera preview: " + e.getMessage());
@@ -471,16 +370,6 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
         } catch (Exception t) {
             Log.e(TAG, "Error setting camera preview surface or starting it: " + t);
         }
-        
-        mCamera.setFaceDetectionListener(this);
-        // Try starting Face Detection
-        Camera.Parameters params = mCamera.getParameters();
-        // start face detection only *after* preview has started
-        if (params.getMaxNumDetectedFaces() > 0){
-            // camera supports face detection, so can start it:
-            mCamera.startFaceDetection();
-            Log.d(TAG, "Starting Face Detection");
-        }
 
         Matrix.setLookAtM(mVMatrix, 0, 0, 0, 5f, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
 
@@ -499,21 +388,12 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
          */
         long currentTime = SystemClock.elapsedRealtimeNanos();
         long elapsedTimeInMs = (currentTime- previousTime)/1000000;
-        Log.d(TAG, "ellapsed time :" + elapsedTimeInMs  + "ms -> " 
+        Log.d(TAG, "ellapsed time :" + elapsedTimeInMs  + "ms -> "
               + (float)(1000/elapsedTimeInMs) + "fps");
         previousTime = currentTime;
         updateSurface = true;
     }
 
-    @Override
-    public void onFaceDetection(Face[] faces, Camera camera) {
-        if (faces.length > 0){
-            Log.d(TAG, "face detected: "+ faces.length +
-                    " Face 1 Location X: " + faces[0].rect.centerX() +
-                    "Y: " + faces[0].rect.centerY() );
-        }
-    }
-    
     private int loadShader(int shaderType, String source) {
         int shader = GLES20.glCreateShader(shaderType);
         if (shader != 0) {
@@ -604,8 +484,8 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
             "void main() {\n" +
             "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
             "}\n";
-    
-    
+
+
     // The fragment shader converts RGB into YUYV. The ouptut is smaller than
     // the input, since 2 pixels RGBARGBA are transformed into YUYV, and this
     // for every row (no vertical downsampling). The output (the framebuffer)
@@ -622,20 +502,20 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
 //        "void main() {\n" +
 //        "  float fx,fy;" +
 //        "  fx = gl_TexCoord[0].x;" +
-//        "  fy = gl_TexCoord[0].y;" +        
+//        "  fy = gl_TexCoord[0].y;" +
 //        "  float y_0 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
 //        "  float u_0 = dot(coeff_u, texture2D(sTexture, vec2(fx*2.0, fy)).rgb);"+
 //        "  float y_1 = dot(coeff_y, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
 //        "  float v_1 = dot(coeff_v, texture2D(sTexture, vec2(fx*2.0 + 1.0, fy)).rgb);"+
-//        "  gl_FragColor = vec4(y_0, u_0, y_1, v_1);\n"+    
+//        "  gl_FragColor = vec4(y_0, u_0, y_1, v_1);\n"+
 //        "}\n";
-    
+
     private float[] mMVPMatrix = new float[16];
     private float[] mProjMatrix = new float[16];
     private float[] mVMatrix = new float[16];
     private float[] mSTMatrix = new float[16];
     private float[] mRotationMatrix = new float[16];
-    
+
     private int mProgram;
     private int mTextureID;
     private int muMVPMatrixHandle;
@@ -655,11 +535,11 @@ class CamRenderer implements GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvail
     private Camera.CameraInfo mCameraInfo = null;
     private int mCameraId;
     private boolean updateSurface = false;
-    
+
     private ByteBuffer mBuffer = null;
 
     private Context mContext;
-    private static String TAG = "CamRenderer";
+    private static String TAG = "VideoCaptureGLRenderer";
 
     // Magic key
     private static int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
