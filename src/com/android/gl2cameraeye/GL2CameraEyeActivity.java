@@ -56,6 +56,7 @@ public class GL2CameraEyeActivity extends Activity {
                         Camera.CameraInfo.CAMERA_FACING_FRONT ? "front" 
                         : "back"));
             }
+            cameraList.add( "Depth");
 
             AlertDialog.Builder builder = new AlertDialog.Builder(this);
             builder.setTitle("Choose camera");
@@ -93,7 +94,7 @@ public class GL2CameraEyeActivity extends Activity {
     protected void createContextAndStartCamera(int cameraId){
         Log.d(TAG, "createContextAndStartCamera: " + cameraId);
 
-        mGLView = new VideoCaptureGLSurfaceView(this, cameraId, 640, 480);
+        mGLView = new VideoCaptureGLSurfaceView(this, cameraId, 1280, 720);
         setContentView(mGLView);
     }
 
@@ -106,6 +107,8 @@ class VideoCaptureGLSurfaceView extends GLSurfaceView {
     VideoCaptureGLRenderer mRenderer;
     Camera mCamera;
     private int mCameraId, mWidth, mHeight;
+    private boolean mDepth = false;
+    private final int DEPTH_CAMERA_ID = 2;
 
     public VideoCaptureGLSurfaceView(
             Context context, int cameraId, int width, int height) {
@@ -113,6 +116,10 @@ class VideoCaptureGLSurfaceView extends GLSurfaceView {
         Log.d(TAG, "constructor");
         setEGLContextClientVersion(2);
 
+        if (cameraId == DEPTH_CAMERA_ID) {
+            mDepth = true;
+            cameraId = 0;
+        }
         mCameraId = cameraId;
         mWidth = width;
         mHeight = height;
@@ -151,6 +158,11 @@ class VideoCaptureGLSurfaceView extends GLSurfaceView {
         parameters.setPreviewSize(mWidth, mHeight);
         parameters.setPreviewFormat(ImageFormat.YV12);
         parameters.setPreviewFpsRange(15000, 15000);  // TODO
+
+        // Note: sf modes are "all", "big-rgb", "small-rgb", "depth", "ir".
+        if (mDepth)
+            parameters.set("sf-mode", "depth");
+
         mCamera.setParameters(parameters);
     }
 }
