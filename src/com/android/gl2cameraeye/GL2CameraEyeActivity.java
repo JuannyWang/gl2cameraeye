@@ -104,8 +104,8 @@ public class GL2CameraEyeActivity extends Activity {
 
 class VideoCaptureGLSurfaceView extends GLSurfaceView {
     private static final String TAG = "VideoCaptureGLSurfaceView";
-    VideoCaptureGLRenderer mRenderer;
-    Camera mCamera;
+    private VideoCaptureGLRenderer mRenderer;
+    private Camera mCamera;
     private int mCameraId, mWidth, mHeight;
     private boolean mDepth = false;
     private final int DEPTH_CAMERA_ID = 2;
