@@ -6,7 +6,12 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
 import javax.microedition.khronos.egl.EGLConfig;
-import javax.microedition.khronos.opengles.GL10;
+import javax.microedition.khronos.egl.EGL10;
+import javax.microedition.khronos.egl.EGLDisplay;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.egl.EGLContext;
+import javax.microedition.khronos.egl.EGLSurface;
+import javax.microedition.khronos.opengles.GL;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -178,6 +183,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
     private Context mContext = null;
     // True when native code has started capture.
     private boolean mIsRunning = false;
+    private long mFrameCount;
 
     private static final int NUM_CAPTURE_BUFFERS = 3;
     private int mExpectedFrameSize = 0;
@@ -314,6 +320,12 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
             parameters.setPreviewFpsRange(fpsMin, fpsMax);
             mCamera.setParameters(parameters);
 
+            // This needs to be done BEFORE dealing with the SurfaceTexture.
+            if (!makeMeAnEglContextBaby())
+                return false;
+            if (CompileAndLoadGles20Shaders()==false)
+                return false;
+
             // Set SurfaceTexture.
             mGlTextures = new int[1];
             // Generate one texture pointer and bind it as an external texture.
@@ -348,7 +360,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
             return false;
         }
 
-        return DoAllGLStuff();
+        return true;
     }
 
 
@@ -471,7 +483,9 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
     @Override
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
       mSurfaceTexture.updateTexImage();
-      Log.d(TAG, "onFrameAvailable");
+      mFrameCount++;
+      if ((mFrameCount % 100L) == 0)
+          Log.d(TAG, "onFrameAvailable: " + mFrameCount);
     }
 
 
@@ -504,101 +518,221 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         }
         return orientation;
     }
-    boolean DoAllGLStuff() {
 
-      // Set up alpha blending and an Android background color.
-      GLES20.glEnable(GLES20.GL_BLEND);
-      GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
-      GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
 
-      // Set up shaders and handles to their variables.
-      mProgram = createProgram(mVertexShader, mFragmentShader);
-      if (mProgram == 0) {
-          return false;
-      }
-      return true;
+
+    boolean CompileAndLoadGles20Shaders() {
+
+        // Set up alpha blending and an Android background color.
+        GLES20.glEnable(GLES20.GL_BLEND);
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+        GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+
+        // Set up shaders and handles to their variables.
+        mProgram = createProgram(mVertexShader, mFragmentShader);
+        if (mProgram == 0) {
+            return false;
+        }
+        return true;
     }
 
 
     private int mProgram;
     private final String mVertexShader =
-            "uniform mat4 uMVPMatrix;\n" +
-            "uniform mat4 uSTMatrix;\n" +
-            "uniform float uCRatio;\n" +
-            "attribute vec4 aPosition;\n" +
-            "attribute vec4 aTextureCoord;\n" +
-            "varying vec2 vTextureCoord;\n" +
-            "void main() {\n" +
-            "  vec4 scaledPos = aPosition;\n" +
-            "  scaledPos.x = scaledPos.x * uCRatio;\n" +
-            "  gl_Position = uMVPMatrix * scaledPos;\n" +
-            "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
-            "}\n";
+        "uniform mat4 uMVPMatrix;\n" +
+        "uniform mat4 uSTMatrix;\n" +
+        "uniform float uCRatio;\n" +
+        "attribute vec4 aPosition;\n" +
+        "attribute vec4 aTextureCoord;\n" +
+        "varying vec2 vTextureCoord;\n" +
+        "void main() {\n" +
+        "  vec4 scaledPos = aPosition;\n" +
+        "  scaledPos.x = scaledPos.x * uCRatio;\n" +
+        "  gl_Position = uMVPMatrix * scaledPos;\n" +
+        "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
+        "}\n";
     private final String mFragmentShader =
-            "#extension GL_OES_EGL_image_external : require\n" +
-            "precision mediump float;\n" +
-            "varying vec2 vTextureCoord;\n" +
-            "uniform samplerExternalOES sTexture;\n" +
-            "void main() {\n" +
-            "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
-            "}\n";
+        "#extension GL_OES_EGL_image_external : require\n" +
+        "precision mediump float;\n" +
+        "varying vec2 vTextureCoord;\n" +
+        "uniform samplerExternalOES sTexture;\n" +
+        "void main() {\n" +
+        "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+        "}\n";
 
 
     private int createProgram(String vertexSource, String fragmentSource) {
-      Log.d(TAG, "createProgram");
-      int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
-      if (vertexShader == 0)
-          return 0;
-      Log.d(TAG, "createProgram");
-      int pixelShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
-      if (pixelShader == 0)
-          return 0;
+        Log.d(TAG, "createProgram");
+        int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
+        if (vertexShader == 0)
+            return 0;
+        Log.d(TAG, "createProgram");
+        int pixelShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
+        if (pixelShader == 0)
+            return 0;
 
-      int program = GLES20.glCreateProgram();
-      if (program != 0) {
-          GLES20.glAttachShader(program, vertexShader);
-          checkGlError("glAttachShader");
-          GLES20.glAttachShader(program, pixelShader);
-          checkGlError("glAttachShader");
-          GLES20.glLinkProgram(program);
-          int[] linkStatus = new int[1];
-          GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
-          if (linkStatus[0] != GLES20.GL_TRUE) {
-              Log.e(TAG, "Could not link program: ");
-              Log.e(TAG, GLES20.glGetProgramInfoLog(program));
-              GLES20.glDeleteProgram(program);
-              program = 0;
-          }
-      }
-      return program;
-  }
+        int program = GLES20.glCreateProgram();
+        if (program != 0) {
+            GLES20.glAttachShader(program, vertexShader);
+            checkGlError("glAttachShader");
+            GLES20.glAttachShader(program, pixelShader);
+            checkGlError("glAttachShader");
+            GLES20.glLinkProgram(program);
+            int[] linkStatus = new int[1];
+            GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
+            if (linkStatus[0] != GLES20.GL_TRUE) {
+                Log.e(TAG, "Could not link program: ");
+                Log.e(TAG, GLES20.glGetProgramInfoLog(program));
+                GLES20.glDeleteProgram(program);
+                program = 0;
+            }
+        }
+        return program;
+    }
 
-  private int loadShader(int shaderType, String source) {
-      Log.d(TAG, "loadShader " + shaderType);
-      int shader = GLES20.glCreateShader(shaderType);
-      if (shader != 0) {
-          GLES20.glShaderSource(shader, source);
-          GLES20.glCompileShader(shader);
-          int[] compiled = new int[1];
-          GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
-          if (compiled[0] == 0) {
-              Log.e(TAG, "Could not compile shader " + shaderType + ":");
-              Log.e(TAG, GLES20.glGetShaderInfoLog(shader));
-              GLES20.glDeleteShader(shader);
-              shader = 0;
-          }
-      } else {
-          Log.e(TAG, "Could not create shader " + shaderType + ":");
-      }
-      return shader;
-  }
+    private int loadShader(int shaderType, String source) {
+        Log.d(TAG, "loadShader " + shaderType);
+        int shader = GLES20.glCreateShader(shaderType);
+        if (shader != 0) {
+            GLES20.glShaderSource(shader, source);
+            GLES20.glCompileShader(shader);
+            int[] compiled = new int[1];
+            GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
+            if (compiled[0] == 0) {
+                Log.e(TAG, "Could not compile shader " + shaderType + ":");
+                Log.e(TAG, GLES20.glGetShaderInfoLog(shader));
+                GLES20.glDeleteShader(shader);
+                shader = 0;
+            }
+        } else {
+            Log.e(TAG, "Could not create shader " + shaderType + ":");
+        }
+        return shader;
+    }
 
-  private void checkGlError(String op) {
-      int error;
-      while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
-          Log.e(TAG, op + ": glError " + error);
-          throw new RuntimeException(op + ": glError " + error);
-      }
-  }
+    private void checkGlError(String op) {
+        int error;
+        while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
+            Log.e(TAG, op + ": glError " + error);
+            throw new RuntimeException(op + ": glError " + error);
+        }
+    }
+
+
+
+
+
+
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+
+    static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
+    static final int EGL_OPENGL_ES2_BIT = 4;
+
+    private volatile boolean mFinished;
+
+    private EGL10 mEgl;
+    private EGLDisplay mEglDisplay;
+    private EGLConfig mEglConfig;
+    private EGLContext mEglContext;
+    private EGLSurface mEglSurface;
+
+
+
+    private boolean makeMeAnEglContextBaby() {
+        mEgl = (EGL10) EGLContext.getEGL();
+
+        ////////////////////////////////////////////////////////////////////////
+        // DISPLAY create-initialize
+        mEglDisplay = mEgl.eglGetDisplay(EGL10.EGL_DEFAULT_DISPLAY);
+        if (mEglDisplay == EGL10.EGL_NO_DISPLAY) {
+            Log.e(TAG, "eglGetDisplay failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+
+        int[] version = new int[2];
+        if (!mEgl.eglInitialize(mEglDisplay, version)) {
+            Log.e(TAG, "eglInitialize failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+        Log.d(TAG, "eglInitialize " + version[0] + "." + version[1]);
+
+        ////////////////////////////////////////////////////////////////////////
+        // Config create-search-use
+        int[] eglConfigSpec = {
+            EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important
+            EGL10.EGL_RED_SIZE, 8,
+            EGL10.EGL_GREEN_SIZE, 8,
+            EGL10.EGL_BLUE_SIZE, 8,
+            EGL10.EGL_ALPHA_SIZE, 0,
+            EGL10.EGL_DEPTH_SIZE, 0,
+            EGL10.EGL_STENCIL_SIZE, 0,
+            EGL10.EGL_NONE
+        };
+        int[] configsCount = new int[1];
+        EGLConfig[] configs = new EGLConfig[1];
+        if (!mEgl.eglChooseConfig(mEglDisplay, 
+                                  eglConfigSpec, 
+                                  configs, 
+                                  1, 
+                                  configsCount)) {
+            Log.e(TAG, "eglChooseConfig failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+        if (configsCount[0] == 0) {
+            Log.e(TAG, "eglChooseConfig didn't find a suitable config.");
+            return false;
+        }
+        mEglConfig = configs[0];
+
+        ////////////////////////////////////////////////////////////////////////
+        // Create the context with the previous display & config.
+        int[] eglContextAttrib = { EGL_CONTEXT_CLIENT_VERSION, 2, EGL10.EGL_NONE };
+        mEglContext = mEgl.eglCreateContext(mEglDisplay,
+                                            mEglConfig,
+                                            EGL10.EGL_NO_CONTEXT,
+                                            eglContextAttrib);
+        if (mEglContext == EGL10.EGL_NO_CONTEXT) {
+            Log.e(TAG, "eglCreateContext failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // Surface. For this we need its attributes, mainly width and height.
+        int[] eglSurfaceAttribList = {EGL10.EGL_WIDTH, 640,
+                                      EGL10.EGL_HEIGHT, 480,
+                                      EGL10.EGL_NONE
+        };
+        mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay, 
+                                                  mEglConfig, 
+                                                  eglSurfaceAttribList);
+
+        if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
+            Log.e(TAG, "createPbufferSurface failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+
+        ////////////////////////////////////////////////////////////////////////
+        // Finally make the context current.
+        if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext)) {
+            Log.e(TAG, "eglMakeCurrent failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+
+        if (!mEglContext.equals(mEgl.eglGetCurrentContext()) ||
+            !mEglSurface.equals(mEgl.eglGetCurrentSurface(EGL10.EGL_DRAW))) {
+            Log.e(TAG, "eglMakeCurrent failed: " + GLUtils.getEGLErrorString(mEgl.eglGetError()) );
+            return false;
+        }
+
+        return true;
+    }
 
 }
