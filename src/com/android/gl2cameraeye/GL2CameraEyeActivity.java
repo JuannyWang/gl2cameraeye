@@ -589,6 +589,8 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
                 Log.e(TAG, GLES20.glGetProgramInfoLog(program));
                 GLES20.glDeleteProgram(program);
                 program = 0;
+            }  else {
+                Log.d(TAG, GLES20.glGetProgramInfoLog(program));
             }
         }
         return program;
@@ -607,6 +609,8 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
                 Log.e(TAG, GLES20.glGetShaderInfoLog(shader));
                 GLES20.glDeleteShader(shader);
                 shader = 0;
+            } else {
+                Log.d(TAG, GLES20.glGetShaderInfoLog(shader));
             }
         } else {
             Log.e(TAG, "Could not create shader " + shaderType + ":");
