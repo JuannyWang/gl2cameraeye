@@ -40,9 +40,13 @@ class SurfaceVideoCapture extends Thread
 
     private final VideoCapture mVideoCapture;
     private final Context mContext;
-    private final SurfaceTexture mCaptureTexture;
-    private final int mCaptureTextureID;
-    private final int mRenderTextureID;
+
+    private int[] mGlTextures = null;
+    private int mCaptureTextureID;
+    private int mRenderTextureID;
+    private SurfaceTexture mCaptureSurfaceTexture;
+    private SurfaceTexture mRenderSurfaceTexture;
+
     private final int mWidth, mHeight;
 
     private boolean mUpdateSurface = false;
@@ -51,24 +55,23 @@ class SurfaceVideoCapture extends Thread
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
     private static final String TAG = "SurfaceVideoCapture";
 
-    public SurfaceVideoCapture (VideoCapture videoCapture,
-                                Context context,
-                                SurfaceTexture captureTexture,
-                                int captureTextureID,
-                                int renderTextureID,
-                                int width,
-                                int height) {
+    public SurfaceVideoCapture(VideoCapture videoCapture,
+                               Context context,
+                               //int captureTextureID,
+                               //SurfaceTexture captureSurfaceTexture,
+                               int width,
+                               int height) {
+        Log.d(TAG, "constructor");
         mVideoCapture = videoCapture;
         mContext = context;
-        mCaptureTexture = captureTexture;
-        mCaptureTextureID = captureTextureID;
-        mRenderTextureID = renderTextureID;
+        //mCaptureTextureID = captureTextureID;
+        //mCaptureSurfaceTexture = captureSurfaceTexture;
         mWidth = width;
         mHeight = height;
     }
 
-    public SurfaceTexture getSurfaceTexture() {
-        return mCaptureTexture;
+    public SurfaceTexture getCaptureSurfaceTexture() {
+        return mCaptureSurfaceTexture;
     }
 
     @Override
@@ -77,7 +80,7 @@ class SurfaceVideoCapture extends Thread
       // come in from some random thread, so let's be safe and use synchronize.
       // (Experimentally it's been seen that Thread.currentThread().toString())
       // gives "main" as the thread calling). No OpenGL calls can be done here,
-      // in particular mCaptureTexture.updateTexImage(), we need to signal to
+      // in particular mCaptureSurfaceTexture.updateTexImage(), we need to signal to
       // the thread that owns the off-screen rendering context.
       mUpdateSurface = true;
       Log.d(TAG, "onFrameAvailable, thread " +
@@ -92,8 +95,11 @@ class SurfaceVideoCapture extends Thread
         android.os.Process.setThreadPriority(
                 android.os.Process.THREAD_PRIORITY_BACKGROUND);
 
+        // Need to create contexes etc _in the run_ method. DELETEME
         if (!(makeMeAnEglContextBaby() &&
-                createFramebufferObject() &&
+                plugSurfaceIntoContextAndMakeCurrent() &&
+                createRenderTextureSurface() &&
+                //createFramebufferObject() &&
                 compileAndLoadGles20Shaders()))
             return;
 
@@ -114,10 +120,23 @@ class SurfaceVideoCapture extends Thread
     }
 
     private void guardedRun() {
-        mCaptureTexture.updateTexImage();
-        mCaptureTexture.getTransformMatrix(mSTMatrix);
 
-        long timestamp = mCaptureTexture.getTimestamp();
+        mCaptureSurfaceTexture.updateTexImage();
+        mCaptureSurfaceTexture.getTransformMatrix(mSTMatrix);
+
+        if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext)) {
+            dumpEGLError("eglMakeCurrent");
+            return;
+        }
+        //GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
+        //if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
+        //        GLES20.GL_FRAMEBUFFER_COMPLETE){
+        //    Log.e(TAG, " Framebuffer fecked up");
+        //    mUpdateSurface = false;
+        //    return;
+        //}
+
+        long timestamp = mCaptureSurfaceTexture.getTimestamp();
         Log.d(TAG, "frame received, updating texture, fps~=" +
                 1000000000L / (timestamp - mPreviousTimestamp));
         mPreviousTimestamp = timestamp;
@@ -162,6 +181,12 @@ class SurfaceVideoCapture extends Thread
         mUpdateSurface = false;
     }
 
+    public void finishme() {
+        deleteEglContext();
+        if (mGlTextures != null)
+            GLES20.glDeleteTextures(1, mGlTextures, 0);
+    }
+
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
@@ -169,15 +194,14 @@ class SurfaceVideoCapture extends Thread
     static final int EGL_CONTEXT_CLIENT_VERSION = 0x3098;
     static final int EGL_OPENGL_ES2_BIT = 4;
 
-    private volatile boolean mFinished;
-
     private EGL10 mEgl;
-    private EGLDisplay mEglDisplay;
+    private EGLDisplay mEglDisplay = EGL10.EGL_NO_DISPLAY;
     private EGLConfig mEglConfig;
-    private EGLContext mEglContext;
-    private EGLSurface mEglSurface;
+    private EGLContext mEglContext = EGL10.EGL_NO_CONTEXT;
+    private EGLSurface mEglSurface = EGL10.EGL_NO_SURFACE;
 
-    private boolean makeMeAnEglContextBaby(SurfaceTexture renderTexture) {
+    private boolean makeMeAnEglContextBaby() {
+        Log.d(TAG, "makeMeAnEglContextBaby");
         mEgl = (EGL10) EGLContext.getEGL();
 
         ////////////////////////////////////////////////////////////////////////
@@ -193,7 +217,7 @@ class SurfaceVideoCapture extends Thread
             dumpEGLError("eglInitialize");
             return false;
         }
-        Log.d(TAG, "eglInitialize version " + version[0] + "." + version[1]);
+        Log.d(TAG, " eglInitialize version " + version[0] + "." + version[1]);
 
         ////////////////////////////////////////////////////////////////////////
         // Config create-search-use
@@ -237,22 +261,70 @@ class SurfaceVideoCapture extends Thread
             return false;
         }
 
+        return true;
+    }
+
+    private boolean createRenderTextureSurface() {
+        Log.d(TAG, "createRenderTextureSurface");
+
+        mGlTextures = new int[1];
+        GLES20.glGenTextures(1, mGlTextures, 0);
+        mCaptureTextureID = mGlTextures[0];
+        // Create and allocate the special texture id and associated
+        // SurfaceTexture for video capture. Special means type EXTERNAL_OES.
+        GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mGlTextures[0]);
+        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
+                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        mCaptureSurfaceTexture = new SurfaceTexture(mCaptureTextureID);
+
+        // Create and allocate a normal texture, that will be used to render the
+        // capture texture id onto.
+        //mGlTextures = new int[1];
+        GLES20.glGenTextures(1, mGlTextures, 0);
+        //mGlTextures[1] = 2; //!!!!!!!!!!!!!!!!!!!!!!!HACKKKKKK!!!!!!!!!!!!!!!!!!
+        mRenderTextureID = mGlTextures[0];
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
+        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
+        mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
+
+        return true;
+    }
+
+    private boolean plugSurfaceIntoContextAndMakeCurrent() {
+        Log.d(TAG, "plugSurfaceIntoContextAndMakeCurrent");
         ////////////////////////////////////////////////////////////////////////
-        // Surface. For this we need its attributes, mainly width and height.
+        // Surface. For Pbuffer we need its attributes, mainly width and height.
         int[] eglSurfaceAttribList = {
-                EGL10.EGL_WIDTH, mWidth,
-                EGL10.EGL_HEIGHT, mHeight,
+                EGL10.EGL_WIDTH, 1024,
+                EGL10.EGL_HEIGHT, 1024,
                 EGL10.EGL_NONE
         };
-        //mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
+        mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
+                                                   mEglConfig,
+                                                   eglSurfaceAttribList);
+        //int[] eglSurfaceAttribList = {
+        //        EGL10.EGL_NONE
+        //};
+        // mRenderSurfaceTexture = new SurfaceTexture(2);
+        //Surface renderSurface = new Surface(mRenderSurfaceTexture);
+        // mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
         //                                          mEglConfig,
+        //                                          renderSurface
         //                                          eglSurfaceAttribList);
-        renderTexture = new SurfaceTexture(mRenderTextureID);
-        renderTexture.setDefaultBufferSize(mWidth, mHeight);
-        mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
-                                                  mEglConfig,
-                                                  renderTexture,
-                                                  eglSurfaceAttribList);
 
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
             dumpEGLError("createPbufferSurface");
@@ -294,6 +366,8 @@ class SurfaceVideoCapture extends Thread
     private int[] mFramebuffer = null;
 
     boolean createFramebufferObject() {
+        Log.d(TAG, "createFramebufferObject");
+
         mFramebuffer = new int[1];
         GLES20.glGenFramebuffers(1, mFramebuffer, 0);
         dumpGLErrorIfAny("glGenFramebuffers");
@@ -314,9 +388,9 @@ class SurfaceVideoCapture extends Thread
 
         if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
                 GLES20.GL_FRAMEBUFFER_COMPLETE){
-            Log.e(TAG, "Creating Framebuffer and/or attaching it to texture");
+            Log.e(TAG, " Created Framebuffer and attached to texture");
         } else {
-            Log.d(TAG, "Framebuffer created and attached to texture.");
+            Log.d(TAG, " Framebuffer created and attached to texture.");
         }
 
         return true;
@@ -325,6 +399,7 @@ class SurfaceVideoCapture extends Thread
     private void deleteFrameBufferObject() {
         GLES20.glDeleteFramebuffers(1, mFramebuffer, 0);
     }
+
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////

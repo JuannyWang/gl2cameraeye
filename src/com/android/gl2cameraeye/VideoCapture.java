@@ -92,7 +92,6 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
     private Camera mCamera;
     public ReentrantLock mPreviewBufferLock = new ReentrantLock();
     private int mImageFormat = ImageFormat.YV12;
-    private byte[] mColorPlane = null;
     private Context mContext = null;
     // True when native code has started capture.
     private boolean mIsRunning = false;
@@ -103,6 +102,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
     private int mId = 0;
     // Native callback context variable.
     private long mNativeVideoCaptureDeviceAndroid = 0;
+
     private int[] mGlTextures = null;
     private SurfaceTexture mSurfaceTexture = null;
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
@@ -166,6 +166,8 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         int newFrameRate = (fpsMin + 999) / 1000;
         while (itFpsRange.hasNext()) {
             fpsRange = (int[]) itFpsRange.next();
+            Log.d(TAG, "allocate: support " + fpsRange[0] + "-" + fpsRange[1]);
+
             if (fpsRange[0] <= frameRateInMs &&
                 frameRateInMs <= fpsRange[1]) {
                 fpsMin = fpsRange[0];
@@ -191,7 +193,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
             Camera.Size size = (Camera.Size) itCameraSize.next();
             int diff = Math.abs(size.width - width) +
                        Math.abs(size.height - height);
-            Log.d(TAG, "allocate: support resolution (" +
+            Log.d(TAG, "allocate: supported (" +
                   size.width + ", " + size.height + "), diff=" + diff);
             // TODO(wjia): Remove this hack (forcing width to be multiple
             // of 32) by supporting stride in video frame buffer.
@@ -233,39 +235,20 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         parameters.setPreviewFpsRange(fpsMin, fpsMax);
         mCamera.setParameters(parameters);
 
-        mGlTextures = new int[2];
-        GLES20.glGenTextures(2, mGlTextures, 0);
-        // Create and allocate the special texture id and associated
-        // SurfaceTexture for video capture. Special means type EXTERNAL_OES.
-        GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mGlTextures[0]);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        mSurfaceTexture = new SurfaceTexture(mGlTextures[0]);
-
-        // Create and allocate a normal texture, that will be used to render the
-        // capture texture id onto.
-        GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_2D, mGlTextures[1]);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_2D,
-                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_2D,
-                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_2D,
-                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_2D,
-                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-
-        try {
-            mCamera.setPreviewTexture(mSurfaceTexture);
-        } catch (IOException ex) {
-            Log.e(TAG, "allocate, setPreviewTexture: " + ex);
-            return false;
-        }
+        //mGlTextures = new int[1];
+        //GLES20.glGenTextures(1, mGlTextures, 0);
+        //// Create and allocate the special texture id and associated
+        //// SurfaceTexture for video capture. Special means type EXTERNAL_OES.
+        //GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mGlTextures[0]);
+        //GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
+        //        GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        //GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
+        //        GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        //GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
+        //        GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        //GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
+        //        GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        //mSurfaceTexture = new SurfaceTexture(mGlTextures[0]);
 
         // Create the object that will deal with all the Surfaces and
         // Textures for the capture. We retrieve the SurfaceTexture
@@ -273,12 +256,29 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         mSurfaceVideoCapture = new SurfaceVideoCapture(
                 this,
                 mContext,
-                mSurfaceTexture,
-                mGlTextures[0],
-                mGlTextures[1],
+                //mGlTextures[0],
+                //mSurfaceTexture,
                 mCurrentCapability.mWidth,
                 mCurrentCapability.mHeight);
         mSurfaceVideoCapture.start();
+
+        Log.d(TAG, "  I'm going to wait 4 seconds");
+        try {
+            Thread.sleep(4000);
+        } catch (InterruptedException ex) {
+            Log.d(TAG, "  Somebody woke me up!");
+        }
+        Log.d(TAG, "  Woke up !!!!");
+
+
+        mSurfaceTexture = mSurfaceVideoCapture.getCaptureSurfaceTexture();
+        try {
+            mCamera.setPreviewTexture(
+                    mSurfaceVideoCapture.getCaptureSurfaceTexture());
+        } catch (IOException ex) {
+            Log.e(TAG, "allocate, setPreviewTexture: " + ex);
+            return false;
+        }
 
         int bufSize = mCurrentCapability.mWidth *
                       mCurrentCapability.mHeight *
