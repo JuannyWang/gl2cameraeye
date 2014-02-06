@@ -671,7 +671,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         // Config create-search-use
         int[] eglConfigSpec = {
             EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important
+            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_WINDOW_BIT,  // Very important
             EGL10.EGL_RED_SIZE, 8,
             EGL10.EGL_GREEN_SIZE, 8,
             EGL10.EGL_BLUE_SIZE, 8,
@@ -714,8 +714,14 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
                                       EGL10.EGL_HEIGHT, 480,
                                       EGL10.EGL_NONE
         };
-        mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay, 
+        //mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay, 
+        //                                          mEglConfig, 
+        //                                          eglSurfaceAttribList);
+        SurfaceTexture sft = new SurfaceTexture(1);
+        sft.setDefaultBufferSize(640, 480);
+        mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay, 
                                                   mEglConfig, 
+                                                  sft,
                                                   eglSurfaceAttribList);
 
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
