@@ -89,4 +89,23 @@
     <!-- version-tag: 1 -->
     <import file="${sdk.dir}/tools/ant/build.xml" />
 
+    <path id="pmd.classpath">
+      <fileset dir="/opt/local/share/pmd">
+        <include name="**/*.jar"/>
+      </fileset>
+    </path>
+
+    <target name="pmd">
+      <taskdef name="pmd" classname="net.sourceforge.pmd.ant.PMDTask"
+          classpathref="pmd.classpath"/>
+      <pmd shortFilenames="true">
+        <ruleset>rulesets/java/design.xml</ruleset>
+        <ruleset>java-basic</ruleset>
+        <formatter type="html" toConsole="true"/>
+        <fileset dir="src">
+            <include name="**/*.java"/>
+        </fileset>
+      </pmd>
+    </target>
+
 </project>
