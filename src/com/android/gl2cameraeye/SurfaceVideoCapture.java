@@ -13,17 +13,16 @@ import javax.microedition.khronos.egl.EGLSurface;
 import javax.microedition.khronos.opengles.GL;
 
 import android.content.Context;
-import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture.OnFrameAvailableListener;
 import android.hardware.Camera;
+import android.media.ImageReader;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import android.view.Surface;
 import android.util.Log;
-
-
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -47,9 +46,18 @@ class SurfaceVideoCapture extends Thread
     private SurfaceTexture mCaptureSurfaceTexture;
     private SurfaceTexture mRenderSurfaceTexture;
 
+    private ImageReader mImageReader = null;
+
     private final int mWidth, mHeight;
 
-    private boolean mUpdateSurface = false;
+    private boolean mUpdateSurface;
+
+    // Following two are used to make getCaptureSurfaceTexture() to wait until
+    // the GLThread actually creates it. This will make the owner class
+    // effectively wait until the GL thread is correctly started. Perhaps move
+    // to timeout'ed. Reconsider alloc/free in constructor/destructor.
+    private Object mFinishedConfiguration = new Object();
+    private boolean mIsFinishedConfiguration;
     private long mPreviousTimestamp;
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
@@ -57,20 +65,27 @@ class SurfaceVideoCapture extends Thread
 
     public SurfaceVideoCapture(VideoCapture videoCapture,
                                Context context,
-                               //int captureTextureID,
-                               //SurfaceTexture captureSurfaceTexture,
                                int width,
                                int height) {
         Log.d(TAG, "constructor");
         mVideoCapture = videoCapture;
         mContext = context;
-        //mCaptureTextureID = captureTextureID;
-        //mCaptureSurfaceTexture = captureSurfaceTexture;
         mWidth = width;
         mHeight = height;
     }
 
-    public SurfaceTexture getCaptureSurfaceTexture() {
+    public SurfaceTexture blockAndGetCaptureSurfaceTexture() {
+        Log.d(TAG, "getCaptureSurfaceTexture: wait for configuration finished");
+        synchronized (mFinishedConfiguration) {
+            // http://docs.oracle.com/javase/7/docs/api/java/lang/Object.html
+            try {
+                while (!mIsFinishedConfiguration)
+                    mFinishedConfiguration.wait();
+            } catch (Exception e) {
+                Log.e(TAG, " Couldn't notify finished cosnfiguration: " + e);
+            }
+        }
+        Log.d(TAG, " Configuration finished");
         return mCaptureSurfaceTexture;
     }
 
@@ -89,25 +104,34 @@ class SurfaceVideoCapture extends Thread
 
     @Override
     public void run() {
+        Log.d(TAG, "run");
         mCallbackThread = Thread.currentThread();
 
         // Moves the current Thread into the background
         android.os.Process.setThreadPriority(
                 android.os.Process.THREAD_PRIORITY_BACKGROUND);
 
-        // Need to create contexes etc _in the run_ method. DELETEME
+        // Need to create contexs etc _in this run_ method. DELETEME
         if (!(makeMeAnEglContextBaby() &&
                 createCaptureAndRenderTexturesAndSurfaceTextures() &&
                 createFramebufferObject() &&
                 compileAndLoadGles20Shaders()))
-            return;
-
+           return;
         synchronized (this) {
             mUpdateSurface = false;
         }
-
-        Log.d(TAG, "EGL and GLES2 OK, running on thread: "
+        Log.d(TAG, " EGL and GLES2 OK, running on thread: "
                 + mCallbackThread.toString());
+
+
+        synchronized (mFinishedConfiguration) {
+            try {
+                mFinishedConfiguration.notify();
+            } catch (Exception e) {
+                Log.e(TAG, "Couldn't notify finished configuration: " + e);
+            }
+            mIsFinishedConfiguration = true;
+        }
 
         for (;;) {
             synchronized (this) {
@@ -285,11 +309,17 @@ class SurfaceVideoCapture extends Thread
         mRenderTextureID = 2;
         mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
         mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
-
         mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
                                                   mEglConfig,
                                                   mRenderSurfaceTexture,
                                                   eglSurfaceAttribList);
+
+        //mImageReader = ImageReader.newInstance(640,480,PixelFormat.RGB_565,2);
+        //mRenderSurface = mImageReader.getSurface();
+        //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
+        //                                          mEglConfig,
+        //                                          mRenderSurface,
+        //                                          eglSurfaceAttribList);
 
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
             dumpEGLError("createPbufferSurface");

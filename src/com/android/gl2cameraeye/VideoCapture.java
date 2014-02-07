@@ -250,31 +250,22 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         //        GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
         //mSurfaceTexture = new SurfaceTexture(mGlTextures[0]);
 
-        // Create the object that will deal with all the Surfaces and
-        // Textures for the capture. We retrieve the SurfaceTexture
-        // reference for plugging into the camera.
+        // Create the object that will create and own all the Surfaces and
+        // Textures for the capture. We retrieve the SurfaceTexture reference
+        // for plugging into the camera. Note that we cannot allocate the
+        // GL_TEXTURE_EXTERNAL_OES for the camera capture until this object is
+        // up and running, since it needs to create an off-screen context first.
         mSurfaceVideoCapture = new SurfaceVideoCapture(
                 this,
                 mContext,
-                //mGlTextures[0],
-                //mSurfaceTexture,
                 mCurrentCapability.mWidth,
                 mCurrentCapability.mHeight);
         mSurfaceVideoCapture.start();
+        mSurfaceTexture =
+                mSurfaceVideoCapture.blockAndGetCaptureSurfaceTexture();
 
-        Log.d(TAG, "  I'm going to wait 4 seconds");
         try {
-            Thread.sleep(4000);
-        } catch (InterruptedException ex) {
-            Log.d(TAG, "  Somebody woke me up!");
-        }
-        Log.d(TAG, "  Woke up !!!!");
-
-
-        mSurfaceTexture = mSurfaceVideoCapture.getCaptureSurfaceTexture();
-        try {
-            mCamera.setPreviewTexture(
-                    mSurfaceVideoCapture.getCaptureSurfaceTexture());
+            mCamera.setPreviewTexture(mSurfaceTexture);
         } catch (IOException ex) {
             Log.e(TAG, "allocate, setPreviewTexture: " + ex);
             return false;
