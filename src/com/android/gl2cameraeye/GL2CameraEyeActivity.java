@@ -19,9 +19,9 @@ public class GL2CameraEyeActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.d(TAG, "constructor ");
+        Log.d(TAG, "onCreate " + chosenCameraId);
 
-        if (chosenCameraId == -1){
+        if (mVideoCapture == null){
             List<String> cameraList = new ArrayList<String>();
             mCameraInfo = new Camera.CameraInfo();
             for (int i=0; i < Camera.getNumberOfCameras(); ++i) {
@@ -55,6 +55,10 @@ public class GL2CameraEyeActivity extends Activity {
         Log.d(TAG, "onPause ");
         //if (mglview != null)
         //    mGLView.onPause();
+        if (mVideoCapture != null) {
+            mVideoCapture.stopCapture();
+            mVideoCapture.deallocate();
+        }
     }
 
     @Override
@@ -63,6 +67,8 @@ public class GL2CameraEyeActivity extends Activity {
         Log.d(TAG, "onResume ");
         //if (mGLView != null)
         //    mGLView.onResume();
+        if (mVideoCapture != null)
+            mVideoCapture.startCapture();
     }
 
     protected void createContextAndStartCamera(int cameraId){

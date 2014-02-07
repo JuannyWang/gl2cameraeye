@@ -14,7 +14,6 @@ import android.opengl.GLES20;
 
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
-import android.graphics.SurfaceTexture.OnFrameAvailableListener;
 
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
@@ -26,7 +25,7 @@ import android.hardware.Camera.Face;
 
 import java.util.concurrent.locks.ReentrantLock;
 
-class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
+class VideoCapture implements PreviewCallback {
     static class CaptureCapability {
         public int mWidth;
         public int mHeight;
@@ -305,6 +304,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
 
 
     public int startCapture() {
+        Log.d(TAG, "startCapture");
         if (mCamera == null) {
             Log.e(TAG, "startCapture: camera is null");
             return -1;
@@ -327,6 +327,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
 
 
     public int stopCapture() {
+        Log.d(TAG, "stopCapture");
         if (mCamera == null) {
             Log.e(TAG, "stopCapture: camera is null");
             return 0;
@@ -341,7 +342,6 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         } finally {
             mPreviewBufferLock.unlock();
         }
-
         mCamera.stopPreview();
         mSurfaceTexture.setOnFrameAvailableListener(null);
         mCamera.setPreviewCallbackWithBuffer(null);
@@ -350,6 +350,7 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
 
 
     public void deallocate() {
+        Log.d(TAG, "deallocate");
         if (mCamera == null)
             return;
 
@@ -364,6 +365,12 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
         } catch (IOException ex) {
             Log.e(TAG, "deallocate: failed to deallocate camera, " + ex);
             return;
+        }
+        mSurfaceVideoCapture.finish();
+        try {
+            mSurfaceVideoCapture.join();
+        } catch (InterruptedException ex) {
+            Log.e(TAG, "deallocate: failed to stop capture thread, " + ex);
         }
     }
 
@@ -397,17 +404,6 @@ class VideoCapture implements PreviewCallback, OnFrameAvailableListener {
             }
         }
     }
-
-    // TODO(wjia): investigate whether reading from texture could give better
-    // performance and frame rate.
-    @Override
-    public void onFrameAvailable(SurfaceTexture surfaceTexture) {
-      mSurfaceTexture.updateTexImage();
-      mFrameCount++;
-      if ((mFrameCount % 100L) == 0)
-          Log.d(TAG, "onFrameAvailable: " + mFrameCount);
-    }
-
 
     private native void nativeOnFrameAvailable(
             long nativeVideoCaptureDeviceAndroid,

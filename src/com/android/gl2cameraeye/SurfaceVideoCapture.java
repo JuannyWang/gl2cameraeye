@@ -21,6 +21,8 @@ import android.media.ImageReader;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.view.Surface;
 import android.util.Log;
 
@@ -51,6 +53,7 @@ class SurfaceVideoCapture extends Thread
     private final int mWidth, mHeight;
 
     private boolean mUpdateSurface;
+    private boolean mRunning;
 
     // Following two are used to make getCaptureSurfaceTexture() to wait until
     // the GLThread actually creates it. This will make the owner class
@@ -87,6 +90,11 @@ class SurfaceVideoCapture extends Thread
         }
         Log.d(TAG, " Configuration finished");
         return mCaptureSurfaceTexture;
+    }
+
+    public void finish() {
+        finishme();
+        mRunning = false;
     }
 
     @Override
@@ -132,14 +140,22 @@ class SurfaceVideoCapture extends Thread
             }
             mIsFinishedConfiguration = true;
         }
+        mRunning = true;
 
-        for (;;) {
+        Bla bla = new Bla();
+        HandlerThread mBla = new HandlerThread("bla");
+        mBla.start();
+        mImageReader.setOnImageAvailableListener(
+                bla, new Handler(mBla.getLooper()));
+
+        while (mRunning) {
             synchronized (this) {
                 if (mUpdateSurface) {
                     guardedRun();
                 }
             }
         }
+        Log.d(TAG, "finish run");
     }
 
     private void guardedRun() {
@@ -205,9 +221,9 @@ class SurfaceVideoCapture extends Thread
     }
 
     public void finishme() {
-        deleteEglContext();
         if (mGlTextures != null)
             GLES20.glDeleteTextures(1, mGlTextures, 0);
+        deleteEglContext();
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -602,5 +618,14 @@ class SurfaceVideoCapture extends Thread
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
             Log.e(TAG, "**" + op + ": glError " + error);
+    }
+}
+
+class Bla implements ImageReader.OnImageAvailableListener {
+    public static final String TAG = "VideoCaptureBla";
+
+    @Override
+    public void onImageAvailable(ImageReader reader) {
+        Log.d(TAG, "*********" );
     }
 }
