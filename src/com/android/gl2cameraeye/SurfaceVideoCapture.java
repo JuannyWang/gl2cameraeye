@@ -13,7 +13,7 @@ import javax.microedition.khronos.egl.EGLSurface;
 import javax.microedition.khronos.opengles.GL;
 
 import android.content.Context;
-import android.graphics.PixelFormat;
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture.OnFrameAvailableListener;
 import android.hardware.Camera;
@@ -44,7 +44,7 @@ class SurfaceVideoCapture extends Thread
     private int mCaptureTextureID;
     private int mRenderTextureID;
     private SurfaceTexture mCaptureSurfaceTexture;
-    private SurfaceTexture mRenderSurfaceTexture;
+    private Surface mRenderSurface;
 
     private ImageReader mImageReader = null;
 
@@ -306,20 +306,20 @@ class SurfaceVideoCapture extends Thread
         // that id, and use it to create a context.
         // Alternative idea: Make a context with a Pbuffer and change it to
         // FBO-WindowSurface afterwards.
-        mRenderTextureID = 2;
-        mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
-        mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
-        mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
-                                                  mEglConfig,
-                                                  mRenderSurfaceTexture,
-                                                  eglSurfaceAttribList);
-
-        //mImageReader = ImageReader.newInstance(640,480,PixelFormat.RGB_565,2);
-        //mRenderSurface = mImageReader.getSurface();
+        //mRenderTextureID = 2;
+        //mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
+        //mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
         //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
         //                                          mEglConfig,
-        //                                          mRenderSurface,
+        //                                          mRenderSurfaceTexture,
         //                                          eglSurfaceAttribList);
+
+        mImageReader = ImageReader.newInstance(640,480,ImageFormat.YV12,2);
+        mRenderSurface = mImageReader.getSurface();
+        mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
+                                                  mEglConfig,
+                                                  mRenderSurface,
+                                                  eglSurfaceAttribList);
 
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
             dumpEGLError("createPbufferSurface");
