@@ -53,8 +53,6 @@ public class GL2CameraEyeActivity extends Activity {
     protected void onPause() {
         super.onPause();
         Log.d(TAG, "onPause ");
-        //if (mglview != null)
-        //    mGLView.onPause();
         if (mVideoCapture != null) {
             mVideoCapture.stopCapture();
             mVideoCapture.deallocate();
@@ -65,8 +63,6 @@ public class GL2CameraEyeActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Log.d(TAG, "onResume ");
-        //if (mGLView != null)
-        //    mGLView.onResume();
         if (mVideoCapture != null)
             mVideoCapture.startCapture();
     }
@@ -75,7 +71,7 @@ public class GL2CameraEyeActivity extends Activity {
         Log.d(TAG, "createContextAndStartCamera: " + cameraId);
         mVideoCapture = VideoCapture.createVideoCapture(this, cameraId, 0);
 
-        mVideoCapture.allocate(320,240,30);
+        mVideoCapture.allocate(1280,720,30);
         mVideoCapture.startCapture();
     }
 

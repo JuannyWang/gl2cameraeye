@@ -2,26 +2,17 @@ package com.android.gl2cameraeye;
 
 import java.io.IOException;
 
-import android.os.Bundle;
-import android.os.SystemClock;
-import android.view.Surface;
-import android.view.WindowManager;
-import android.widget.EditText;
 import android.content.Context;
-import android.util.Log;
-
 import android.opengl.GLES20;
-
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
-
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
+import android.util.Log;
+
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import android.hardware.Camera;
-import android.hardware.Camera.Face;
 
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -412,27 +403,7 @@ class VideoCapture implements PreviewCallback {
             int rotation);
 
     public int getDeviceOrientation() {
-        int orientation = 0;
-        if (mContext != null) {
-            WindowManager wm = (WindowManager) mContext.getSystemService(
-                    Context.WINDOW_SERVICE);
-            switch(wm.getDefaultDisplay().getRotation()) {
-                case Surface.ROTATION_90:
-                    orientation = 90;
-                    break;
-                case Surface.ROTATION_180:
-                    orientation = 180;
-                    break;
-                case Surface.ROTATION_270:
-                    orientation = 270;
-                    break;
-                case Surface.ROTATION_0:
-                default:
-                    orientation = 0;
-                    break;
-            }
-        }
-        return orientation;
+        return 90;
     }
 }
 

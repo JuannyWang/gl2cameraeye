@@ -1,8 +1,12 @@
 package com.android.gl2cameraeye;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
+import android.content.Context;
+import android.graphics.ImageFormat;
+import android.graphics.SurfaceTexture;
+import android.graphics.SurfaceTexture.OnFrameAvailableListener;
+import android.opengl.GLES20;
+import android.opengl.GLUtils;
+import android.util.Log;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.egl.EGL10;
@@ -12,39 +16,11 @@ import javax.microedition.khronos.egl.EGLContext;
 import javax.microedition.khronos.egl.EGLSurface;
 import javax.microedition.khronos.opengles.GL;
 
-import android.content.Context;
-import android.graphics.ImageFormat;
-import android.graphics.SurfaceTexture;
-import android.graphics.SurfaceTexture.OnFrameAvailableListener;
-import android.hardware.Camera;
-import android.media.ImageReader;
-import android.opengl.GLES20;
-import android.opengl.GLUtils;
-import android.opengl.Matrix;
-import android.os.Environment;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.os.SystemClock;
-import android.view.Surface;
-import android.util.Log;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import android.hardware.Camera;
-import android.hardware.Camera.Face;
-
 /**
  **/
-class SurfaceVideoCapture extends Thread
+class OffScreenRender extends Thread
                           implements OnFrameAvailableListener {
-    private final VideoCapture mVideoCapture;
-    private final Context mContext;
-
-    private int[] mGlTextures = null;
-    private int mCaptureTextureID;
     private int mRenderTextureID;
-    private SurfaceTexture mCaptureSurfaceTexture;
     //private SurfaceTexture mRenderSurfaceTexture;
 
     //private Surface mRenderSurface;
@@ -55,28 +31,26 @@ class SurfaceVideoCapture extends Thread
     private boolean mUpdateSurface;
     private boolean mRunning;
 
+    VideoCaptureGLESRender mVideoCaptureGLESRender = null;
+
     // Following two are used to make getCaptureSurfaceTexture() to wait until
     // the GLThread actually creates it. This will make the owner class
     // effectively wait until the GL thread is correctly started. Perhaps move
     // to timeout'ed. Reconsider alloc/free in constructor/destructor.
     private Object mFinishedConfiguration = new Object();
     private boolean mIsFinishedConfiguration;
-    private long mPreviousTimestamp;
-
-    private ByteBuffer mPixelBuf;
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
-    private static final String TAG = "SurfaceVideoCapture";
+    private static final String TAG = "OffScreenRender";
 
-    public SurfaceVideoCapture(VideoCapture videoCapture,
+    public OffScreenRender(VideoCapture videoCapture,
                                Context context,
                                int width,
                                int height) {
         Log.d(TAG, "constructor");
-        mVideoCapture = videoCapture;
-        mContext = context;
         mWidth = width;
         mHeight = height;
+        mVideoCaptureGLESRender = new VideoCaptureGLESRender(context, videoCapture, width, height);
     }
 
     public SurfaceTexture blockAndGetCaptureSurfaceTexture() {
@@ -91,7 +65,7 @@ class SurfaceVideoCapture extends Thread
             }
         }
         Log.d(TAG, " Configuration finished");
-        return mCaptureSurfaceTexture;
+        return mVideoCaptureGLESRender.getCaptureSurfaceTexture();
     }
 
     public void finish() {
@@ -124,7 +98,7 @@ class SurfaceVideoCapture extends Thread
         if (!(makeMeAnEglContextBaby() &&
                 createCaptureAndRenderTexturesAndSurfaceTextures() &&
                 //createFramebufferObject() &&
-                compileAndLoadGles20Shaders()))
+                mVideoCaptureGLESRender.init()))
            return;
         synchronized (this) {
             mUpdateSurface = false;
@@ -141,6 +115,7 @@ class SurfaceVideoCapture extends Thread
             mIsFinishedConfiguration = true;
         }
         mRunning = true;
+
 
         //Bla bla = new Bla();
         //HandlerThread mBla = new HandlerThread("bla");
@@ -163,66 +138,11 @@ class SurfaceVideoCapture extends Thread
     private void guardedRun() {
         // No need to make eglContext current or bind the FBO.
 
-        mCaptureSurfaceTexture.updateTexImage();
-        mCaptureSurfaceTexture.getTransformMatrix(mSTMatrix);
-
-        long timestamp = mCaptureSurfaceTexture.getTimestamp();
-        Log.d(TAG, "frame received, updating texture, fps~=" +
-                1000000000L / (timestamp - mPreviousTimestamp));
-        mPreviousTimestamp = timestamp;
-
-        GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
-        GLES20.glUseProgram(mProgram);
-        dumpGLErrorIfAny("glUseProgram");
-
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mCaptureTextureID);
-
-        mTriangleVertices.position(TRIANGLE_VERTICES_DATA_POS_OFFSET);
-        GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT,
-                false, TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
-        dumpGLErrorIfAny("glVertexAttribPointer maPosition");
-        GLES20.glEnableVertexAttribArray(maPositionHandle);
-        dumpGLErrorIfAny("glEnableVertexAttribArray maPositionHandle");
-
-        mTriangleVertices.position(TRIANGLE_VERTICES_DATA_UV_OFFSET);
-        GLES20.glVertexAttribPointer(maTextureHandle, 3, GLES20.GL_FLOAT, false,
-                TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
-        dumpGLErrorIfAny("glVertexAttribPointer maTextureHandle");
-        GLES20.glEnableVertexAttribArray(maTextureHandle);
-        dumpGLErrorIfAny("glEnableVertexAttribArray maTextureHandle");
-
-        // Create a rotation for the geometry.
-        float vflip = -1.0f;
-        int orientation = mVideoCapture.getDeviceOrientation();
-
-        Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
-
-        Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mRotationMatrix, 0);
-        Matrix.multiplyMM(mMVPMatrix, 0, mMVPMatrix, 0, mVMatrix, 0);
-
-        GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mMVPMatrix, 0);
-        GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
-        GLES20.glUniform1f(muCRatioHandle, (float) mWidth / mHeight);
-
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        dumpGLErrorIfAny("glDrawArrays");
-
-        long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
-        GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
-                GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
-            mPixelBuf.rewind();
-        long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
-        long elapsed_time =
-                (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
-        Log.d(TAG, "glReadPixels ellapsed time :" + elapsed_time + "ms");
-
+        mVideoCaptureGLESRender.render();
         mUpdateSurface = false;
     }
 
     public void finishme() {
-        if (mGlTextures != null)
-            GLES20.glDeleteTextures(1, mGlTextures, 0);
         deleteEglContext();
     }
 
@@ -266,7 +186,7 @@ class SurfaceVideoCapture extends Thread
             EGL10.EGL_RED_SIZE, 8,
             EGL10.EGL_GREEN_SIZE, 8,
             EGL10.EGL_BLUE_SIZE, 8,
-            EGL10.EGL_ALPHA_SIZE, 8,  // Very importan!
+            EGL10.EGL_ALPHA_SIZE, 8,  // Very important.
             EGL10.EGL_DEPTH_SIZE, 0,
             EGL10.EGL_STENCIL_SIZE, 0,
             EGL10.EGL_NONE
@@ -378,22 +298,6 @@ class SurfaceVideoCapture extends Thread
     private boolean createCaptureAndRenderTexturesAndSurfaceTextures() {
         Log.d(TAG, "createCaptureAndRenderTexturesAndSurfaceTextures");
 
-        mGlTextures = new int[1];
-        GLES20.glGenTextures(1, mGlTextures, 0);
-        mCaptureTextureID = mGlTextures[0];
-        // Create and allocate the special texture id and associated
-        // SurfaceTexture for video capture. Special means type EXTERNAL_OES.
-        GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mGlTextures[0]);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexParameteri(GL_TEXTURE_EXTERNAL_OES,
-                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        mCaptureSurfaceTexture = new SurfaceTexture(mCaptureTextureID);
-
         // Create and allocate a normal texture, that will be used to render the
         // capture texture id onto. This is a hack but there's an explanation in
         //  makeMeAnEglContextBaby().
@@ -454,167 +358,6 @@ class SurfaceVideoCapture extends Thread
         GLES20.glDeleteFramebuffers(1, mFramebuffer, 0);
     }
 
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    // Only call this after the EGL context has been created and made current.
-    boolean compileAndLoadGles20Shaders() {
-        mTriangleVertices = ByteBuffer
-                .allocateDirect(mTriangleVerticesData.length * FLOAT_SIZE_BYTES)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer();
-        mTriangleVertices.put(mTriangleVerticesData).position(0);
-
-        Matrix.setIdentityM(mSTMatrix, 0);
-
-        mPos[0] = 0.f;
-        mPos[1] = 0.f;
-        mPos[2] = 0.f;
-
-        // Set up alpha blending and an Android background color.
-        GLES20.glEnable(GLES20.GL_BLEND);
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
-        GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
-
-        // Set up shaders and handles to their variables.
-        mProgram = createProgram(mVertexShader, mFragmentShader);
-        if (mProgram == 0) {
-            return false;
-        }
-
-        maPositionHandle = GLES20.glGetAttribLocation(mProgram, "aPosition");
-        dumpGLErrorIfAny("glGetAttribLocation aPosition");
-        if (maPositionHandle == -1)
-            return false;
-        maTextureHandle = GLES20.glGetAttribLocation(mProgram, "aTextureCoord");
-        dumpGLErrorIfAny("glGetAttribLocation aTextureCoord");
-        if (maTextureHandle == -1)
-          return false;
-
-        muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix");
-        dumpGLErrorIfAny("glGetUniformLocation uMVPMatrix");
-        if (muMVPMatrixHandle == -1)
-            return false;
-
-        muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix");
-        dumpGLErrorIfAny("glGetUniformLocation uSTMatrix");
-        if (muSTMatrixHandle == -1)
-            return false;
-
-        muCRatioHandle = GLES20.glGetUniformLocation(mProgram, "uCRatio");
-        dumpGLErrorIfAny("glGetUniformLocation uCRatio");
-        if (muCRatioHandle == -1)
-            return false;
-
-        Matrix.setLookAtM(mVMatrix, 0, 0, 0, 5f, 0f, 0f, 0f, 0f, 1.0f, 0.0f);
-
-        return true;
-    }
-
-    private int mProgram;
-    private final String mVertexShader =
-        "uniform mat4 uMVPMatrix;\n" +
-        "uniform mat4 uSTMatrix;\n" +
-        "uniform float uCRatio;\n" +
-        "attribute vec4 aPosition;\n" +
-        "attribute vec4 aTextureCoord;\n" +
-        "varying vec2 vTextureCoord;\n" +
-        "void main() {\n" +
-        "  vec4 scaledPos = aPosition;\n" +
-        "  scaledPos.x = scaledPos.x * uCRatio;\n" +
-        "  gl_Position = uMVPMatrix * scaledPos;\n" +
-        "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
-        "}\n";
-    private final String mFragmentShader =
-        "#extension GL_OES_EGL_image_external : require\n" +
-        "precision mediump float;\n" +
-        "varying vec2 vTextureCoord;\n" +
-        "uniform samplerExternalOES sTexture;\n" +
-        "void main() {\n" +
-        "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
-        "}\n";
-
-    private float[] mMVPMatrix = new float[16];
-    private float[] mProjMatrix = new float[16];
-    private float[] mVMatrix = new float[16];
-    private float[] mSTMatrix = new float[16];
-    private float[] mRotationMatrix = new float[16];
-
-    private int muMVPMatrixHandle;
-    private int muSTMatrixHandle;
-    private int muCRatioHandle;
-    private int maPositionHandle;
-    private int maTextureHandle;
-    private float[] mPos = new float[3];
-
-    private static final int FLOAT_SIZE_BYTES = 4;
-    private static final int TRIANGLE_VERTICES_DATA_STRIDE_BYTES =
-            5 * FLOAT_SIZE_BYTES;
-    private static final int TRIANGLE_VERTICES_DATA_POS_OFFSET = 0;
-    private static final int TRIANGLE_VERTICES_DATA_UV_OFFSET = 3;
-    private final float[] mTriangleVerticesData = {
-            // X ---- Y- Z -- U -- V
-            -1.0f, -1.0f, 0, 0.f, 0.f,
-             1.0f, -1.0f, 0, 1.f, 0.f,
-            -1.0f,  1.0f, 0, 0.f, 1.f,
-             1.0f,  1.0f, 0, 1.f, 1.f,
-    };
-
-    private FloatBuffer mTriangleVertices;
-
-    private int createProgram(String vertexSource, String fragmentSource) {
-        Log.d(TAG, "createProgram");
-        int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
-        if (vertexShader == 0)
-            return 0;
-        int pixelShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
-        if (pixelShader == 0)
-            return 0;
-
-        int program = GLES20.glCreateProgram();
-        if (program != 0) {
-            GLES20.glAttachShader(program, vertexShader);
-            dumpGLErrorIfAny("glAttachShader");
-            GLES20.glAttachShader(program, pixelShader);
-            dumpGLErrorIfAny("glAttachShader");
-            GLES20.glLinkProgram(program);
-            int[] linkStatus = new int[1];
-            GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
-            if (linkStatus[0] != GLES20.GL_TRUE) {
-                Log.e(TAG, "Could not link program: ");
-                Log.e(TAG, GLES20.glGetProgramInfoLog(program));
-                GLES20.glDeleteProgram(program);
-                program = 0;
-            } else {
-              Log.d(TAG, GLES20.glGetProgramInfoLog(program));
-            }
-        }
-        return program;
-    }
-
-    private int loadShader(int shaderType, String source) {
-        Log.d(TAG, "loadShader " + shaderType);
-        int shader = GLES20.glCreateShader(shaderType);
-        if (shader != 0) {
-            GLES20.glShaderSource(shader, source);
-            GLES20.glCompileShader(shader);
-            int[] compiled = new int[1];
-            GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
-            if (compiled[0] == 0) {
-                Log.e(TAG, "Could not compile shader " + shaderType + ":");
-                Log.e(TAG, GLES20.glGetShaderInfoLog(shader));
-                GLES20.glDeleteShader(shader);
-                shader = 0;
-            } else {
-              Log.d(TAG, GLES20.glGetShaderInfoLog(shader));
-            }
-        } else {
-            Log.e(TAG, "Could not create shader " + shaderType + ":");
-        }
-        return shader;
-    }
-
     private void dumpGLErrorIfAny(String op) {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
@@ -622,18 +365,3 @@ class SurfaceVideoCapture extends Thread
     }
 }
 
-//class Bla implements ImageReader.OnImageAvailableListener {
-//    public static final String TAG = "VideoCaptureBla";
-//
-//    @Override
-//    public void onImageAvailable(ImageReader reader) {
-//        Log.d(TAG, "*********" );
-//    }
-//}
-
-class Bla implements OnFrameAvailableListener {
-    private static final String TAG = "VideoCaptureBla";
-    public void onFrameAvailable(SurfaceTexture texture) {
-        Log.d(TAG, "*********" );
-    }
-}
