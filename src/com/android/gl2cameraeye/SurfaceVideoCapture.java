@@ -21,8 +21,10 @@ import android.media.ImageReader;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.opengl.Matrix;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.SystemClock;
 import android.view.Surface;
 import android.util.Log;
 
@@ -31,7 +33,6 @@ import java.util.Iterator;
 import java.util.List;
 import android.hardware.Camera;
 import android.hardware.Camera.Face;
-
 
 /**
  **/
@@ -44,7 +45,7 @@ class SurfaceVideoCapture extends Thread
     private int mCaptureTextureID;
     private int mRenderTextureID;
     private SurfaceTexture mCaptureSurfaceTexture;
-    private SurfaceTexture mRenderSurfaceTexture;
+    //private SurfaceTexture mRenderSurfaceTexture;
 
     //private Surface mRenderSurface;
     //private ImageReader mImageReader = null;
@@ -61,6 +62,8 @@ class SurfaceVideoCapture extends Thread
     private Object mFinishedConfiguration = new Object();
     private boolean mIsFinishedConfiguration;
     private long mPreviousTimestamp;
+
+    private ByteBuffer mPixelBuf;
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
     private static final String TAG = "SurfaceVideoCapture";
@@ -120,7 +123,7 @@ class SurfaceVideoCapture extends Thread
         // Need to create contexs etc _in this run_ method. DELETEME
         if (!(makeMeAnEglContextBaby() &&
                 createCaptureAndRenderTexturesAndSurfaceTextures() &&
-                createFramebufferObject() &&
+                //createFramebufferObject() &&
                 compileAndLoadGles20Shaders()))
            return;
         synchronized (this) {
@@ -144,8 +147,8 @@ class SurfaceVideoCapture extends Thread
         //mBla.start();
         //mImageReader.setOnImageAvailableListener(
         //        bla, new Handler(mBla.getLooper()));
-        Bla bla = new Bla();
-        mRenderSurfaceTexture.setOnFrameAvailableListener(bla);
+        //Bla bla = new Bla();
+        //mRenderSurfaceTexture.setOnFrameAvailableListener(bla);
 
         while (mRunning) {
             synchronized (this) {
@@ -205,6 +208,15 @@ class SurfaceVideoCapture extends Thread
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         dumpGLErrorIfAny("glDrawArrays");
 
+        long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
+        GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
+                GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
+            mPixelBuf.rewind();
+        long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
+        long elapsed_time =
+                (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
+        Log.d(TAG, "glReadPixels ellapsed time :" + elapsed_time + "ms");
+
         mUpdateSurface = false;
     }
 
@@ -250,11 +262,11 @@ class SurfaceVideoCapture extends Thread
         // Config create-search-use
         int[] eglConfigSpec = {
             EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_WINDOW_BIT,  // Very important
+            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important
             EGL10.EGL_RED_SIZE, 8,
             EGL10.EGL_GREEN_SIZE, 8,
             EGL10.EGL_BLUE_SIZE, 8,
-            EGL10.EGL_ALPHA_SIZE, 0,
+            EGL10.EGL_ALPHA_SIZE, 8,  // Very importan!
             EGL10.EGL_DEPTH_SIZE, 0,
             EGL10.EGL_STENCIL_SIZE, 0,
             EGL10.EGL_NONE
@@ -290,17 +302,18 @@ class SurfaceVideoCapture extends Thread
 
         ////////////////////////////////////////////////////////////////////////
         // Surface. For Pbuffer we need its attributes, mainly width and height.
-        //int[] eglSurfaceAttribList = {
-        //        EGL10.EGL_WIDTH, 1024,
-        //        EGL10.EGL_HEIGHT, 1024,
-        //        EGL10.EGL_NONE
-        //};
-        //mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
-        //                                           mEglConfig,
-        //                                           eglSurfaceAttribList);
         int[] eglSurfaceAttribList = {
+                EGL10.EGL_WIDTH, 1024,
+                EGL10.EGL_HEIGHT, 1024,
                 EGL10.EGL_NONE
         };
+        mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
+                                                   mEglConfig,
+                                                   eglSurfaceAttribList);
+
+        //int[] eglSurfaceAttribList = {
+        //        EGL10.EGL_NONE
+        //};
         // NOTE(mcasas): We need a context created before we can create and
         // configure the textures. But for the context to be created, a
         // Surface, SurfaceTexture, SurfaceHolder or SurfaceView is needed, by
@@ -310,13 +323,13 @@ class SurfaceVideoCapture extends Thread
         // that id, and use it to create a context.
         // Alternative idea: Make a context with a Pbuffer and change it to
         // FBO-WindowSurface afterwards.
-        mRenderTextureID = 2;
-        mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
-        mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
-        mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
-                                                  mEglConfig,
-                                                  mRenderSurfaceTexture,
-                                                  eglSurfaceAttribList);
+        //mRenderTextureID = 2;
+        //mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
+        //mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
+        //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
+        //                                          mEglConfig,
+        //                                          mRenderSurfaceTexture,
+        //                                          eglSurfaceAttribList);
 
         //mImageReader = ImageReader.newInstance(640,480,ImageFormat.YV12,2);
         //mRenderSurface = mImageReader.getSurface();
@@ -384,18 +397,18 @@ class SurfaceVideoCapture extends Thread
         // Create and allocate a normal texture, that will be used to render the
         // capture texture id onto. This is a hack but there's an explanation in
         //  makeMeAnEglContextBaby().
-        mRenderTextureID = 2; //!!!!!!!!!!!!!!!!!!!!!!!HACKKKKKK!!!!!!!!!!!!!!!!
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
-        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
-                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, mWidth,
-                mHeight, 0, GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, null);
+        //mRenderTextureID = 2; //!!!!!!!!!!!!!!!!!!!!!!!HACKKKKKK!!!!!!!!!!!!!!!!
+        //GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
+        //GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+        //        GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        //GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+        //        GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        //GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+        //        GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        //GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+        //        GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        //GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, mWidth,
+        //        mHeight, 0, GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, null);
 
         return true;
     }

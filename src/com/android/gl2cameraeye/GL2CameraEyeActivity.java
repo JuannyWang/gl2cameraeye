@@ -75,7 +75,7 @@ public class GL2CameraEyeActivity extends Activity {
         Log.d(TAG, "createContextAndStartCamera: " + cameraId);
         mVideoCapture = VideoCapture.createVideoCapture(this, cameraId, 0);
 
-        mVideoCapture.allocate(1280,720,30);
+        mVideoCapture.allocate(320,240,30);
         mVideoCapture.startCapture();
     }
 
