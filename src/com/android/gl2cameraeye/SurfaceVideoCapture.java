@@ -37,8 +37,6 @@ import android.hardware.Camera.Face;
  **/
 class SurfaceVideoCapture extends Thread
                           implements OnFrameAvailableListener {
-    private Thread mCallbackThread = null;
-
     private final VideoCapture mVideoCapture;
     private final Context mContext;
 
@@ -46,9 +44,10 @@ class SurfaceVideoCapture extends Thread
     private int mCaptureTextureID;
     private int mRenderTextureID;
     private SurfaceTexture mCaptureSurfaceTexture;
-    private Surface mRenderSurface;
+    private SurfaceTexture mRenderSurfaceTexture;
 
-    private ImageReader mImageReader = null;
+    //private Surface mRenderSurface;
+    //private ImageReader mImageReader = null;
 
     private final int mWidth, mHeight;
 
@@ -103,8 +102,8 @@ class SurfaceVideoCapture extends Thread
       // come in from some random thread, so let's be safe and use synchronize.
       // (Experimentally it's been seen that Thread.currentThread().toString())
       // gives "main" as the thread calling). No OpenGL calls can be done here,
-      // in particular mCaptureSurfaceTexture.updateTexImage(), we need to signal to
-      // the thread that owns the off-screen rendering context.
+      // in particular mCaptureSurfaceTexture.updateTexImage(), we need to
+      // signal to the thread that owns the off-screen rendering context.
       mUpdateSurface = true;
       Log.d(TAG, "onFrameAvailable, thread " +
               Thread.currentThread().toString());
@@ -113,7 +112,6 @@ class SurfaceVideoCapture extends Thread
     @Override
     public void run() {
         Log.d(TAG, "run");
-        mCallbackThread = Thread.currentThread();
 
         // Moves the current Thread into the background
         android.os.Process.setThreadPriority(
@@ -128,9 +126,8 @@ class SurfaceVideoCapture extends Thread
         synchronized (this) {
             mUpdateSurface = false;
         }
-        Log.d(TAG, " EGL and GLES2 OK, running on thread: "
-                + mCallbackThread.toString());
-
+        Log.d(TAG, " EGL and GLES2 OK, running on thread: " +
+                Thread.currentThread().toString());
 
         synchronized (mFinishedConfiguration) {
             try {
@@ -142,11 +139,13 @@ class SurfaceVideoCapture extends Thread
         }
         mRunning = true;
 
+        //Bla bla = new Bla();
+        //HandlerThread mBla = new HandlerThread("bla");
+        //mBla.start();
+        //mImageReader.setOnImageAvailableListener(
+        //        bla, new Handler(mBla.getLooper()));
         Bla bla = new Bla();
-        HandlerThread mBla = new HandlerThread("bla");
-        mBla.start();
-        mImageReader.setOnImageAvailableListener(
-                bla, new Handler(mBla.getLooper()));
+        mRenderSurfaceTexture.setOnFrameAvailableListener(bla);
 
         while (mRunning) {
             synchronized (this) {
@@ -159,21 +158,10 @@ class SurfaceVideoCapture extends Thread
     }
 
     private void guardedRun() {
+        // No need to make eglContext current or bind the FBO.
 
         mCaptureSurfaceTexture.updateTexImage();
         mCaptureSurfaceTexture.getTransformMatrix(mSTMatrix);
-
-        if (!mEgl.eglMakeCurrent(mEglDisplay, mEglSurface, mEglSurface, mEglContext)) {
-            dumpEGLError("eglMakeCurrent");
-            return;
-        }
-        //GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
-        //if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
-        //        GLES20.GL_FRAMEBUFFER_COMPLETE){
-        //    Log.e(TAG, " Framebuffer fecked up");
-        //    mUpdateSurface = false;
-        //    return;
-        //}
 
         long timestamp = mCaptureSurfaceTexture.getTimestamp();
         Log.d(TAG, "frame received, updating texture, fps~=" +
@@ -322,20 +310,20 @@ class SurfaceVideoCapture extends Thread
         // that id, and use it to create a context.
         // Alternative idea: Make a context with a Pbuffer and change it to
         // FBO-WindowSurface afterwards.
-        //mRenderTextureID = 2;
-        //mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
-        //mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
-        //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
-        //                                          mEglConfig,
-        //                                          mRenderSurfaceTexture,
-        //                                          eglSurfaceAttribList);
-
-        mImageReader = ImageReader.newInstance(640,480,ImageFormat.YV12,2);
-        mRenderSurface = mImageReader.getSurface();
+        mRenderTextureID = 2;
+        mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
+        mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
         mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
                                                   mEglConfig,
-                                                  mRenderSurface,
+                                                  mRenderSurfaceTexture,
                                                   eglSurfaceAttribList);
+
+        //mImageReader = ImageReader.newInstance(640,480,ImageFormat.YV12,2);
+        //mRenderSurface = mImageReader.getSurface();
+        //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
+        //                                          mEglConfig,
+        //                                          mRenderSurface,
+        //                                          eglSurfaceAttribList);
 
         if (mEglSurface == null || mEglSurface == EGL10.EGL_NO_SURFACE) {
             dumpEGLError("createPbufferSurface");
@@ -621,11 +609,18 @@ class SurfaceVideoCapture extends Thread
     }
 }
 
-class Bla implements ImageReader.OnImageAvailableListener {
-    public static final String TAG = "VideoCaptureBla";
+//class Bla implements ImageReader.OnImageAvailableListener {
+//    public static final String TAG = "VideoCaptureBla";
+//
+//    @Override
+//    public void onImageAvailable(ImageReader reader) {
+//        Log.d(TAG, "*********" );
+//    }
+//}
 
-    @Override
-    public void onImageAvailable(ImageReader reader) {
+class Bla implements OnFrameAvailableListener {
+    private static final String TAG = "VideoCaptureBla";
+    public void onFrameAvailable(SurfaceTexture texture) {
         Log.d(TAG, "*********" );
     }
 }
