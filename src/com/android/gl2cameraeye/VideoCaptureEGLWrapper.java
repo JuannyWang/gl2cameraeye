@@ -18,14 +18,12 @@ import javax.microedition.khronos.opengles.GL;
 
 /**
  **/
-class OffScreenRender extends Thread
-                          implements OnFrameAvailableListener {
-    private int mRenderTextureID;
+class VideoCaptureEGLWrapper extends Thread
+                             implements OnFrameAvailableListener {
+    //private int mRenderTextureID;
     //private SurfaceTexture mRenderSurfaceTexture;
-
     //private Surface mRenderSurface;
     //private ImageReader mImageReader = null;
-
     private final int mWidth, mHeight;
 
     private boolean mUpdateSurface;
@@ -33,44 +31,45 @@ class OffScreenRender extends Thread
 
     VideoCaptureGLESRender mVideoCaptureGLESRender = null;
 
-    // Following two are used to make getCaptureSurfaceTexture() to wait until
-    // the GLThread actually creates it. This will make the owner class
-    // effectively wait until the GL thread is correctly started. Perhaps move
-    // to timeout'ed. Reconsider alloc/free in constructor/destructor.
+    // Following two are used to make getCaptureSurfaceTexture() wait until
+    // the GLThread is correctly started. Perhaps move to timeout'ed. Reconsider
+    // alloc/free in constructor/destructor.
     private Object mFinishedConfiguration = new Object();
     private boolean mIsFinishedConfiguration;
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
-    private static final String TAG = "OffScreenRender";
+    private static final String TAG = "VideoCaptureEGLWrapper";
 
-    public OffScreenRender(VideoCapture videoCapture,
+    public VideoCaptureEGLWrapper(VideoCapture videoCapture,
                                Context context,
                                int width,
                                int height) {
         Log.d(TAG, "constructor");
         mWidth = width;
         mHeight = height;
-        mVideoCaptureGLESRender = new VideoCaptureGLESRender(context, videoCapture, width, height);
+        mVideoCaptureGLESRender = new
+                VideoCaptureGLESRender(context, videoCapture, width, height);
+    }
+
+    public void finish() {
+        mVideoCaptureGLESRender.shutdown();
+        shutdown();
+        mRunning = false;
     }
 
     public SurfaceTexture blockAndGetCaptureSurfaceTexture() {
-        Log.d(TAG, "getCaptureSurfaceTexture: wait for configuration finished");
+        Log.d(TAG, "blockAndGetCaptureSurfaceTexture: wait for configuration " +
+                "finished");
         synchronized (mFinishedConfiguration) {
-            // http://docs.oracle.com/javase/7/docs/api/java/lang/Object.html
             try {
                 while (!mIsFinishedConfiguration)
                     mFinishedConfiguration.wait();
-            } catch (Exception e) {
-                Log.e(TAG, " Couldn't notify finished cosnfiguration: " + e);
+            } catch (InterruptedException e) {
+                Log.e(TAG, " Couldn't notify finished configuration: " + e);
             }
         }
         Log.d(TAG, " Configuration finished");
         return mVideoCaptureGLESRender.getCaptureSurfaceTexture();
-    }
-
-    public void finish() {
-        finishme();
-        mRunning = false;
     }
 
     @Override
@@ -95,27 +94,26 @@ class OffScreenRender extends Thread
                 android.os.Process.THREAD_PRIORITY_BACKGROUND);
 
         // Need to create contexs etc _in this run_ method. DELETEME
-        if (!(makeMeAnEglContextBaby() &&
+        if (!(createEGLContext() &&
                 createCaptureAndRenderTexturesAndSurfaceTextures() &&
-                //createFramebufferObject() &&
+                createFramebufferObject() &&
                 mVideoCaptureGLESRender.init()))
            return;
         synchronized (this) {
             mUpdateSurface = false;
         }
-        Log.d(TAG, " EGL and GLES2 OK, running on thread: " +
-                Thread.currentThread().toString());
 
+        Log.d(TAG, " EGL and GLES2 OK on thread: " +
+                Thread.currentThread().toString());
         synchronized (mFinishedConfiguration) {
             try {
                 mFinishedConfiguration.notify();
-            } catch (Exception e) {
+            } catch (IllegalMonitorStateException e) {
                 Log.e(TAG, "Couldn't notify finished configuration: " + e);
             }
             mIsFinishedConfiguration = true;
         }
         mRunning = true;
-
 
         //Bla bla = new Bla();
         //HandlerThread mBla = new HandlerThread("bla");
@@ -135,15 +133,15 @@ class OffScreenRender extends Thread
         Log.d(TAG, "finish run");
     }
 
+    public void shutdown() {
+        deleteEglContext();
+    }
+
     private void guardedRun() {
         // No need to make eglContext current or bind the FBO.
 
         mVideoCaptureGLESRender.render();
         mUpdateSurface = false;
-    }
-
-    public void finishme() {
-        deleteEglContext();
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -159,8 +157,8 @@ class OffScreenRender extends Thread
     private EGLContext mEglContext = EGL10.EGL_NO_CONTEXT;
     private EGLSurface mEglSurface = EGL10.EGL_NO_SURFACE;
 
-    private boolean makeMeAnEglContextBaby() {
-        Log.d(TAG, "makeMeAnEglContextBaby");
+    private boolean createEGLContext() {
+        Log.d(TAG, "createEGLContext");
         mEgl = (EGL10) EGLContext.getEGL();
 
         ////////////////////////////////////////////////////////////////////////
@@ -283,8 +281,14 @@ class OffScreenRender extends Thread
     }
 
     private void deleteEglContext() {
-          mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
-          mEgl.eglDestroyContext(mEglDisplay, mEglContext);
+        if (mEglDisplay != EGL10.EGL_NO_DISPLAY) {
+            mEgl.eglDestroySurface(mEglDisplay, mEglSurface);
+            mEgl.eglDestroyContext(mEglDisplay, mEglContext);
+            mEgl.eglTerminate(mEglDisplay);
+        }
+        mEglDisplay = EGL10.EGL_NO_DISPLAY;
+        mEglContext = EGL10.EGL_NO_CONTEXT;
+        mEglSurface = EGL10.EGL_NO_SURFACE;
     }
 
     private void dumpEGLError(String op) {
@@ -300,7 +304,7 @@ class OffScreenRender extends Thread
 
         // Create and allocate a normal texture, that will be used to render the
         // capture texture id onto. This is a hack but there's an explanation in
-        //  makeMeAnEglContextBaby().
+        //  createEGLContext().
         //mRenderTextureID = 2; //!!!!!!!!!!!!!!!!!!!!!!!HACKKKKKK!!!!!!!!!!!!!!!!
         //GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
         //GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
@@ -326,30 +330,27 @@ class OffScreenRender extends Thread
     boolean createFramebufferObject() {
         Log.d(TAG, "createFramebufferObject");
 
-        mFramebuffer = new int[1];
-        GLES20.glGenFramebuffers(1, mFramebuffer, 0);
-        dumpGLErrorIfAny("glGenFramebuffers");
-
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
-        dumpGLErrorIfAny("glBindFramebuffer");
-        // Qualcomm recommends clear after glBindFrameBuffer().
-        GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
-
-        ////////////////////////////////////////////////////////////////////////
-        // Bind the texture to the generated Framebuffer Object.
-        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER,
-                                      GLES20.GL_COLOR_ATTACHMENT0,
-                                      GLES20.GL_TEXTURE_2D,
-                                      mRenderTextureID,
-                                      0);
-        dumpGLErrorIfAny("glFramebufferTexture2D");
-
-        if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
-                GLES20.GL_FRAMEBUFFER_COMPLETE){
-            Log.e(TAG, " Created Framebuffer and attached to texture");
-        } else {
-            Log.d(TAG, " Framebuffer created and attached to texture.");
-        }
+        //mFramebuffer = new int[1];
+        //GLES20.glGenFramebuffers(1, mFramebuffer, 0);
+        //dumpGLErrorIfAny("glGenFramebuffers");
+        //GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
+        //dumpGLErrorIfAny("glBindFramebuffer");
+        //// Qualcomm recommends clear after glBindFrameBuffer().
+        //GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+        //////////////////////////////////////////////////////////////////////////
+        //// Bind the texture to the generated Framebuffer Object.
+        //GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER,
+        //                              GLES20.GL_COLOR_ATTACHMENT0,
+        //                              GLES20.GL_TEXTURE_2D,
+        //                              mRenderTextureID,
+        //                              0);
+        //dumpGLErrorIfAny("glFramebufferTexture2D");
+        //if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
+        //        GLES20.GL_FRAMEBUFFER_COMPLETE){
+        //    Log.e(TAG, " Created Framebuffer and attached to texture");
+        //} else {
+        //    Log.d(TAG, " Framebuffer created and attached to texture.");
+        //}
 
         return true;
     }

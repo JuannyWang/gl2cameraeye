@@ -161,7 +161,7 @@ class VideoCaptureGLESRender{
         return createVideoCaptureSurfaceTexture();
     }
 
-    private boolean shutdown() {
+    public boolean shutdown() {
         if (mGlTextures != null)
             GLES20.glDeleteTextures(1, mGlTextures, 0);
         return true;
