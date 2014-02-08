@@ -4,7 +4,6 @@ import android.content.Context;
 import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.graphics.SurfaceTexture.OnFrameAvailableListener;
-import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.util.Log;
 
@@ -20,8 +19,9 @@ import javax.microedition.khronos.opengles.GL;
  **/
 class VideoCaptureEGLWrapper extends Thread
                              implements OnFrameAvailableListener {
-    //private int mRenderTextureID;
-    //private SurfaceTexture mRenderSurfaceTexture;
+
+    private int mFboRenderTextureID;
+    private SurfaceTexture mRenderSurfaceTexture;
     //private Surface mRenderSurface;
     //private ImageReader mImageReader = null;
     private final int mWidth, mHeight;
@@ -49,6 +49,10 @@ class VideoCaptureEGLWrapper extends Thread
         mHeight = height;
         mVideoCaptureGLESRender = new
                 VideoCaptureGLESRender(context, videoCapture, width, height);
+
+        // If -1 means use Pixel buffer, otherwise is the ID of the texture to
+        // use for the FrameBuffer Object rendering.
+        mFboRenderTextureID = 1;
     }
 
     public void finish() {
@@ -94,11 +98,9 @@ class VideoCaptureEGLWrapper extends Thread
                 android.os.Process.THREAD_PRIORITY_BACKGROUND);
 
         // Need to create contexs etc _in this run_ method. DELETEME
-        if (!(createEGLContext() &&
-                createCaptureAndRenderTexturesAndSurfaceTextures() &&
-                createFramebufferObject() &&
-                mVideoCaptureGLESRender.init()))
-           return;
+        if (!(createEGLContext(mFboRenderTextureID) &&
+              mVideoCaptureGLESRender.init(mFboRenderTextureID)))
+            return;
         synchronized (this) {
             mUpdateSurface = false;
         }
@@ -157,7 +159,7 @@ class VideoCaptureEGLWrapper extends Thread
     private EGLContext mEglContext = EGL10.EGL_NO_CONTEXT;
     private EGLSurface mEglSurface = EGL10.EGL_NO_SURFACE;
 
-    private boolean createEGLContext() {
+    private boolean createEGLContext(int renderTextureID) {
         Log.d(TAG, "createEGLContext");
         mEgl = (EGL10) EGLContext.getEGL();
 
@@ -178,9 +180,14 @@ class VideoCaptureEGLWrapper extends Thread
 
         ////////////////////////////////////////////////////////////////////////
         // Config create-search-use
+        int surfaceType;
+        if (renderTextureID != -1)
+            surfaceType = EGL10.EGL_PBUFFER_BIT;
+        else
+            surfaceType = EGL10.EGL_WINDOW_BIT;
         int[] eglConfigSpec = {
             EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-            EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important
+            EGL10.EGL_SURFACE_TYPE, surfaceType,  // Very important
             EGL10.EGL_RED_SIZE, 8,
             EGL10.EGL_GREEN_SIZE, 8,
             EGL10.EGL_BLUE_SIZE, 8,
@@ -189,6 +196,7 @@ class VideoCaptureEGLWrapper extends Thread
             EGL10.EGL_STENCIL_SIZE, 0,
             EGL10.EGL_NONE
         };
+
         int[] configsCount = new int[1];
         EGLConfig[] configs = new EGLConfig[1];
         if (!mEgl.eglChooseConfig(mEglDisplay,
@@ -220,34 +228,35 @@ class VideoCaptureEGLWrapper extends Thread
 
         ////////////////////////////////////////////////////////////////////////
         // Surface. For Pbuffer we need its attributes, mainly width and height.
-        int[] eglSurfaceAttribList = {
-                EGL10.EGL_WIDTH, 1024,
-                EGL10.EGL_HEIGHT, 1024,
-                EGL10.EGL_NONE
-        };
-        mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
-                                                   mEglConfig,
-                                                   eglSurfaceAttribList);
-
-        //int[] eglSurfaceAttribList = {
-        //        EGL10.EGL_NONE
-        //};
-        // NOTE(mcasas): We need a context created before we can create and
-        // configure the textures. But for the context to be created, a
-        // Surface, SurfaceTexture, SurfaceHolder or SurfaceView is needed, by
-        // preference the second, and to create a SurfaceTexture, a texture id
-        // is needed! Circular dependency!
-        // Hack: hardcode texture id to number 2, create a SurfaceTexture with
-        // that id, and use it to create a context.
-        // Alternative idea: Make a context with a Pbuffer and change it to
-        // FBO-WindowSurface afterwards.
-        //mRenderTextureID = 2;
-        //mRenderSurfaceTexture = new SurfaceTexture(mRenderTextureID);
-        //mRenderSurfaceTexture.setDefaultBufferSize(512, 512);
-        //mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
-        //                                          mEglConfig,
-        //                                          mRenderSurfaceTexture,
-        //                                          eglSurfaceAttribList);
+        if (renderTextureID != -1) {
+          int[] eglSurfaceAttribList = {
+                  EGL10.EGL_WIDTH, 1024,
+                  EGL10.EGL_HEIGHT, 1024,
+                  EGL10.EGL_NONE
+          };
+          mEglSurface = mEgl.eglCreatePbufferSurface(mEglDisplay,
+                                                     mEglConfig,
+                                                     eglSurfaceAttribList);
+        } else {
+          int[] eglSurfaceAttribList = {
+                  EGL10.EGL_NONE
+          };
+          // NOTE(mcasas): We need a context created before we can create and
+          // configure the textures. But for the context to be created, a
+          // Surface, SurfaceTexture, SurfaceHolder or SurfaceView is needed, by
+          // preference the second, and to create a SurfaceTexture, a texture id
+          // is needed! Circular dependency!
+          // Hack: hardcode texture id to number 2, create a SurfaceTexture with
+          // that id, and use it to create a context.
+          // Alternative idea: Make a context with a Pbuffer and change it to
+          // FBO-WindowSurface afterwards.
+          mRenderSurfaceTexture = new SurfaceTexture(renderTextureID);
+          mRenderSurfaceTexture.setDefaultBufferSize(1024, 1024);
+          mEglSurface = mEgl.eglCreateWindowSurface(mEglDisplay,
+                                                    mEglConfig,
+                                                    mRenderSurfaceTexture,
+                                                    eglSurfaceAttribList);
+        }
 
         //mImageReader = ImageReader.newInstance(640,480,ImageFormat.YV12,2);
         //mRenderSurface = mImageReader.getSurface();
@@ -293,76 +302,6 @@ class VideoCaptureEGLWrapper extends Thread
 
     private void dumpEGLError(String op) {
         Log.e(TAG, op + " :" + GLUtils.getEGLErrorString(mEgl.eglGetError()));
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    private boolean createCaptureAndRenderTexturesAndSurfaceTextures() {
-        Log.d(TAG, "createCaptureAndRenderTexturesAndSurfaceTextures");
-
-        // Create and allocate a normal texture, that will be used to render the
-        // capture texture id onto. This is a hack but there's an explanation in
-        //  createEGLContext().
-        //mRenderTextureID = 2; //!!!!!!!!!!!!!!!!!!!!!!!HACKKKKKK!!!!!!!!!!!!!!!!
-        //GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
-        //GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
-        //        GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-        //GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
-        //        GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        //GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
-        //        GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-        //GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
-        //        GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        //GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, mWidth,
-        //        mHeight, 0, GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, null);
-
-        return true;
-    }
-
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////
-    private int[] mFramebuffer = null;
-
-    boolean createFramebufferObject() {
-        Log.d(TAG, "createFramebufferObject");
-
-        //mFramebuffer = new int[1];
-        //GLES20.glGenFramebuffers(1, mFramebuffer, 0);
-        //dumpGLErrorIfAny("glGenFramebuffers");
-        //GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
-        //dumpGLErrorIfAny("glBindFramebuffer");
-        //// Qualcomm recommends clear after glBindFrameBuffer().
-        //GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
-        //////////////////////////////////////////////////////////////////////////
-        //// Bind the texture to the generated Framebuffer Object.
-        //GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER,
-        //                              GLES20.GL_COLOR_ATTACHMENT0,
-        //                              GLES20.GL_TEXTURE_2D,
-        //                              mRenderTextureID,
-        //                              0);
-        //dumpGLErrorIfAny("glFramebufferTexture2D");
-        //if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
-        //        GLES20.GL_FRAMEBUFFER_COMPLETE){
-        //    Log.e(TAG, " Created Framebuffer and attached to texture");
-        //} else {
-        //    Log.d(TAG, " Framebuffer created and attached to texture.");
-        //}
-
-        return true;
-    }
-
-    private void deleteFrameBufferObject() {
-        GLES20.glDeleteFramebuffers(1, mFramebuffer, 0);
-    }
-
-    private void dumpGLErrorIfAny(String op) {
-        int error;
-        while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
-            Log.e(TAG, "**" + op + ": glError " + error);
     }
 }
 

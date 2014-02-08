@@ -34,7 +34,9 @@ class VideoCaptureGLESRender{
 
     private int[] mGlTextures = null;
     private int mCaptureTextureID;
+    private int mRenderTextureID;
     private SurfaceTexture mCaptureSurfaceTexture;
+    private int[] mFramebuffer = null;
 
     private long mPreviousTimestamp;
     private ByteBuffer mPixelBuf;
@@ -100,12 +102,14 @@ class VideoCaptureGLESRender{
         mVideoCapture = videoCapture;
         mWidth = width;
         mHeight = height;
+        mRenderTextureID = -1;
     }
 
     // Synchronous method that creates all necessary Open GL ES 2.0 variables
     // for rendering into the current context. The special Video Capture texture
     // and associated SurfaceTexture are also created.
-    public boolean init(){
+    // If a renderTextureID is passed, an FBO is created and linked to it.
+    public boolean init(int renderTextureID){
         mTriangleVertices = ByteBuffer
                 .allocateDirect(
                         mTriangleVerticesData.length * FLOAT_SIZE_BYTES)
@@ -158,12 +162,19 @@ class VideoCaptureGLESRender{
 
         mPixelBuf = ByteBuffer.allocateDirect(mWidth * mHeight * 4);
 
+        if (renderTextureID != -1) {
+            mRenderTextureID = renderTextureID;
+            createFramebufferObjectTexture(renderTextureID);
+            createFramebufferObject(renderTextureID);
+        }
+
         return createVideoCaptureSurfaceTexture();
     }
 
     public boolean shutdown() {
-        if (mGlTextures != null)
-            GLES20.glDeleteTextures(1, mGlTextures, 0);
+        deleteFrameBufferObject();
+        GLES20.glDeleteTextures(1, mGlTextures, 0);
+        // TODO delete fbo texture
         return true;
     }
 
@@ -217,6 +228,10 @@ class VideoCaptureGLESRender{
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         dumpGLErrorIfAny("glDrawArrays");
 
+        // TODO Don't try glReadPixels if FBO object, yet.
+        if (mRenderTextureID != -1)
+            return;
+
         // Retrieve the pixels and dump the approximate elapsed time.
         long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
         GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
@@ -250,6 +265,61 @@ class VideoCaptureGLESRender{
         mCaptureSurfaceTexture = new SurfaceTexture(mCaptureTextureID);
         return true;
     }
+
+    private boolean createFramebufferObjectTexture(int renderTextureID) {
+        // Create and allocate a normal texture, that will be used to render the
+        // capture texture id onto. This is a hack but there's an explanation in
+        // createEGLContext().
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, renderTextureID);
+        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
+                GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, mWidth,
+                mHeight, 0, GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, null);
+
+        return true;
+    }
+
+    private boolean createFramebufferObject(int renderTextureID) {
+        if (renderTextureID == -1)
+            return true;
+        Log.d(TAG, "createFramebufferObject");
+
+        mFramebuffer = new int[1];
+        GLES20.glGenFramebuffers(1, mFramebuffer, 0);
+        dumpGLErrorIfAny("glGenFramebuffers");
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
+        dumpGLErrorIfAny("glBindFramebuffer");
+        // Qualcomm recommends clear after glBindFrameBuffer().
+        GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+
+        ////////////////////////////////////////////////////////////////////////
+        // Bind the texture to the generated Framebuffer Object.
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER,
+                                      GLES20.GL_COLOR_ATTACHMENT0,
+                                      GLES20.GL_TEXTURE_2D,
+                                      renderTextureID,
+                                      0);
+        dumpGLErrorIfAny("glFramebufferTexture2D");
+        if(GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
+                GLES20.GL_FRAMEBUFFER_COMPLETE){
+            Log.e(TAG, " Created Framebuffer and attached to texture");
+        } else {
+            Log.d(TAG, " Framebuffer created and attached to texture.");
+        }
+
+        return true;
+    }
+
+    private void deleteFrameBufferObject() {
+        GLES20.glDeleteFramebuffers(1, mFramebuffer, 0);
+    }
+
 
     private int createProgram(String vertexSource, String fragmentSource) {
         Log.d(TAG, "createProgram");
@@ -330,7 +400,7 @@ class VideoCaptureGLESRender{
     private void dumpGLErrorIfAny(String op) {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
-            Log.e(TAG, "**" + op + ": glError " + error);
+            Log.e(TAG, "** " + op + ": glError " + error);
     }
 
 }
