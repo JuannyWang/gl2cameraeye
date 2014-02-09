@@ -52,7 +52,7 @@ class VideoCaptureEGLWrapper extends Thread
 
         // If -1 means use Pixel buffer, otherwise is the ID of the texture to
         // use for the FrameBuffer Object rendering.
-        mFboRenderTextureID = 1;
+        mFboRenderTextureID = 2;
     }
 
     public void finish() {
@@ -180,11 +180,8 @@ class VideoCaptureEGLWrapper extends Thread
 
         ////////////////////////////////////////////////////////////////////////
         // Config create-search-use
-        int surfaceType;
-        if (renderTextureID != -1)
-            surfaceType = EGL10.EGL_PBUFFER_BIT;
-        else
-            surfaceType = EGL10.EGL_WINDOW_BIT;
+        int surfaceType = (renderTextureID != -1) ? EGL10.EGL_PBUFFER_BIT
+                : EGL10.EGL_WINDOW_BIT;
         int[] eglConfigSpec = {
             EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
             EGL10.EGL_SURFACE_TYPE, surfaceType,  // Very important

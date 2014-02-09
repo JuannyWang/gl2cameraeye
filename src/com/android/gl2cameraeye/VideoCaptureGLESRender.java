@@ -228,9 +228,6 @@ class VideoCaptureGLESRender{
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         dumpGLErrorIfAny("glDrawArrays");
 
-        // TODO Don't try glReadPixels if FBO object, yet.
-        if (mRenderTextureID != -1)
-            return;
 
         // Retrieve the pixels and dump the approximate elapsed time.
         long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
@@ -279,8 +276,11 @@ class VideoCaptureGLESRender{
                 GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGB, mWidth,
-                mHeight, 0, GLES20.GL_RGB, GLES20.GL_UNSIGNED_BYTE, null);
+        // The width and height here are in texel size, not in pixels.
+        int size_texels = 64;
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA,
+            size_texels, size_texels, 0, GLES20.GL_RGBA,
+            GLES20.GL_UNSIGNED_BYTE, null);
 
         return true;
     }
