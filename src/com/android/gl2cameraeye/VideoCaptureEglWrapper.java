@@ -17,7 +17,7 @@ import javax.microedition.khronos.opengles.GL;
 
 /**
  **/
-class VideoCaptureEGLWrapper extends Thread
+class VideoCaptureEglWrapper extends Thread
                              implements OnFrameAvailableListener {
 
     private int mFboRenderTextureID;
@@ -29,7 +29,7 @@ class VideoCaptureEGLWrapper extends Thread
     private boolean mUpdateSurface;
     private boolean mRunning;
 
-    VideoCaptureGLESRender mVideoCaptureGLESRender = null;
+    VideoCaptureGlRender mVideoCaptureGlRender = null;
 
     // Following two are used to make getCaptureSurfaceTexture() wait until
     // the GLThread is correctly started. Perhaps move to timeout'ed. Reconsider
@@ -38,17 +38,17 @@ class VideoCaptureEGLWrapper extends Thread
     private boolean mIsFinishedConfiguration;
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
-    private static final String TAG = "VideoCaptureEGLWrapper";
+    private static final String TAG = "VideoCaptureEglWrapper";
 
-    public VideoCaptureEGLWrapper(VideoCapture videoCapture,
+    public VideoCaptureEglWrapper(VideoCapture videoCapture,
                                Context context,
                                int width,
                                int height) {
         Log.d(TAG, "constructor");
         mWidth = width;
         mHeight = height;
-        mVideoCaptureGLESRender = new
-                VideoCaptureGLESRender(context, videoCapture, width, height);
+        mVideoCaptureGlRender = new
+                VideoCaptureGlRender(context, videoCapture, width, height);
 
         // If -1 means use Pixel buffer, otherwise is the ID of the texture to
         // use for the FrameBuffer Object rendering.
@@ -56,7 +56,7 @@ class VideoCaptureEGLWrapper extends Thread
     }
 
     public void finish() {
-        mVideoCaptureGLESRender.shutdown();
+        mVideoCaptureGlRender.shutdown();
         shutdown();
         mRunning = false;
     }
@@ -73,7 +73,7 @@ class VideoCaptureEGLWrapper extends Thread
             }
         }
         Log.d(TAG, " Configuration finished");
-        return mVideoCaptureGLESRender.getCaptureSurfaceTexture();
+        return mVideoCaptureGlRender.getCaptureSurfaceTexture();
     }
 
     @Override
@@ -99,7 +99,7 @@ class VideoCaptureEGLWrapper extends Thread
 
         // Need to create contexs etc _in this run_ method. DELETEME
         if (!(createEGLContext(mFboRenderTextureID) &&
-              mVideoCaptureGLESRender.init(mFboRenderTextureID)))
+              mVideoCaptureGlRender.init(mFboRenderTextureID)))
             return;
         synchronized (this) {
             mUpdateSurface = false;
@@ -142,7 +142,7 @@ class VideoCaptureEGLWrapper extends Thread
     private void guardedRun() {
         // No need to make eglContext current or bind the FBO.
 
-        mVideoCaptureGLESRender.render();
+        mVideoCaptureGlRender.render();
         mUpdateSurface = false;
     }
 

@@ -93,7 +93,6 @@ class VideoCapture implements PreviewCallback {
     // Native callback context variable.
     private long mNativeVideoCaptureDeviceAndroid = 0;
 
-    private int[] mGlTextures = null;
     private SurfaceTexture mSurfaceTexture = null;
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
 
@@ -102,7 +101,7 @@ class VideoCapture implements PreviewCallback {
     private int mDeviceOrientation = 0;
 
     CaptureCapability mCurrentCapability = null;
-    private VideoCaptureEGLWrapper mVideoCaptureEGLWrapper = null;
+    private VideoCaptureEglWrapper mVideoCaptureEglWrapper = null;
     private static final String TAG = "VideoCapture";
 
 
@@ -225,20 +224,20 @@ class VideoCapture implements PreviewCallback {
         parameters.setPreviewFpsRange(fpsMin, fpsMax);
         mCamera.setParameters(parameters);
 
-        // Allocate a VideoCaptureEGLWrapper, that will create an off-screen
+        // Allocate a VideoCaptureEglWrapper, that will create an off-screen
         // context and an associated thread. It will also create the GLES GLSL
         // rendering pipeline capturing from the camera. Do not create here the
         // special texture (GL_TEXTURE_EXTERNAL_OES) id and SurfaceTexture for
         // plugging into the Camera, since these need to be owned by the thread
-        // owning the EGL context (unless the contexts are shared correctly).
-        mVideoCaptureEGLWrapper = new VideoCaptureEGLWrapper(
+        // owning the Egl context (unless the contexts are shared correctly).
+        mVideoCaptureEglWrapper = new VideoCaptureEglWrapper(
                 this,
                 mContext,
                 mCurrentCapability.mWidth,
                 mCurrentCapability.mHeight);
-        mVideoCaptureEGLWrapper.start();
+        mVideoCaptureEglWrapper.start();
         mSurfaceTexture =
-                mVideoCaptureEGLWrapper.blockAndGetCaptureSurfaceTexture();
+                mVideoCaptureEglWrapper.blockAndGetCaptureSurfaceTexture();
 
         try {
             mCamera.setPreviewTexture(mSurfaceTexture);
@@ -296,7 +295,7 @@ class VideoCapture implements PreviewCallback {
         } finally {
             mPreviewBufferLock.unlock();
         }
-        mSurfaceTexture.setOnFrameAvailableListener(mVideoCaptureEGLWrapper);
+        mSurfaceTexture.setOnFrameAvailableListener(mVideoCaptureEglWrapper);
         mCamera.setPreviewCallbackWithBuffer(null);
         mCamera.startPreview();
         return 0;
@@ -334,8 +333,6 @@ class VideoCapture implements PreviewCallback {
         stopCapture();
         try {
             mCamera.setPreviewTexture(null);
-            if (mGlTextures != null)
-                GLES20.glDeleteTextures(1, mGlTextures, 0);
             mCurrentCapability = null;
             mCamera.release();
             mCamera = null;
@@ -343,9 +340,9 @@ class VideoCapture implements PreviewCallback {
             Log.e(TAG, "deallocate: failed to deallocate camera, " + ex);
             return;
         }
-        mVideoCaptureEGLWrapper.finish();
+        mVideoCaptureEglWrapper.finish();
         try {
-            mVideoCaptureEGLWrapper.join();
+            mVideoCaptureEglWrapper.join();
         } catch (InterruptedException ex) {
             Log.e(TAG, "deallocate: failed to stop capture thread, " + ex);
         }

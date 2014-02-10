@@ -26,7 +26,7 @@ import android.view.WindowManager;
  * OnFrameAvailable callbacks and signal the rendering thread, then invoke the
  * render() method. When done, stop the class using shutdown().
  */
-class VideoCaptureGLESRender{
+class VideoCaptureGlRender{
     private int mWidth;
     private int mHeight;
     private VideoCapture mVideoCapture;
@@ -92,9 +92,9 @@ class VideoCaptureGLESRender{
         "}\n";
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
-    private static final String TAG = "VideoCaptureGLESRender";
+    private static final String TAG = "VideoCaptureGlRender";
 
-    public VideoCaptureGLESRender(Context context,
+    public VideoCaptureGlRender(Context context,
                                   VideoCapture videoCapture,
                                   int width,
                                   int height) {
