@@ -17,7 +17,7 @@ import org.chromium.media.VideoCapture;
 public class GL2CameraEyeActivity extends Activity {
     private Camera.CameraInfo mCameraInfo = null;
     private VideoCapture mVideoCapture = null;
-    private int chosenCameraId = -1;
+    private int mCameraId = -1;
     private static final String TAG = "GL2CameraEyeActivity";
 
     @Override
@@ -25,7 +25,7 @@ public class GL2CameraEyeActivity extends Activity {
         super.onCreate(savedInstanceState);
         Log.d(TAG, "onCreate ");
 
-        if (chosenCameraId == -1){
+        if (mCameraId == -1){
             List<String> cameraList = new ArrayList<String>();
             mCameraInfo = new Camera.CameraInfo();
             for (int i=0; i < Camera.getNumberOfCameras(); ++i) {
@@ -43,8 +43,8 @@ public class GL2CameraEyeActivity extends Activity {
                         public void onClick(DialogInterface dialog, int which) {
                             // The 'which' argument contains the index position
                             // of the selected item
-                            chosenCameraId = which;
-                            createContextAndStartCamera(chosenCameraId);
+                            mCameraId = which;
+                            createContextAndStartCamera(mCameraId);
                         }
                     });
             AlertDialog alert = builder.create();
@@ -91,7 +91,7 @@ public class GL2CameraEyeActivity extends Activity {
     protected void createContextAndStartCamera(int cameraId){
         Log.d(TAG, "createContextAndStartCamera: " + cameraId);
 
-        mVideoCapture = VideoCapture.createVideoCapture( this, chosenCameraId, 0);
+        mVideoCapture = VideoCapture.createVideoCapture(this, mCameraId, 0);
         mVideoCapture.allocate(1280, 720, 30);
 
         // We need to plug the GLSurfaceView as our content view. This will make

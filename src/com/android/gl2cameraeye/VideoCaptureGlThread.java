@@ -5,6 +5,7 @@
 package org.chromium.media;
 
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.opengl.GLSurfaceView;
 import android.util.Log;
@@ -23,6 +24,8 @@ import javax.microedition.khronos.egl.EGLSurface;
 class VideoCaptureGlThread extends GLSurfaceView {
     private final int mWidth, mHeight;
     private VideoCaptureGlRender mVideoCaptureGlRender = null;
+    private static int mFboRenderTextureID;
+    private static SurfaceTexture mRenderSurfaceTexture = null;
     private static final String TAG = "VideoCaptureGlThread";
 
     public VideoCaptureGlThread(Context context,
@@ -41,17 +44,16 @@ class VideoCaptureGlThread extends GLSurfaceView {
         setEGLWindowSurfaceFactory(new EglWindowSurfaceFactory());
         setDebugFlags(DEBUG_CHECK_GL_ERROR | DEBUG_LOG_GL_CALLS);
         setEGLContextClientVersion(2);
-        setPreserveEGLContextOnPause(true);
 
         // mFboRenderTextureID == -1 means use Pixel buffer, otherwise is the
         // ID of the texture to use for the FrameBuffer Object rendering.
-        int fboRenderTextureID = -1;
+        mFboRenderTextureID = 2;
         mVideoCaptureGlRender = new VideoCaptureGlRender(context,
                 videoCapture,
                 camera,
                 mWidth,
                 mHeight,
-                fboRenderTextureID);
+                mFboRenderTextureID);
         setRenderer(mVideoCaptureGlRender);
         setRenderMode(RENDERMODE_CONTINUOUSLY);
     }
@@ -84,7 +86,7 @@ class VideoCaptureGlThread extends GLSurfaceView {
             Log.d(TAG, "chooseConfig");
             int[] eglConfigSpec = {
                     EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                    //EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important (GL2CameraEye)
+                    EGL10.EGL_SURFACE_TYPE, EGL10.EGL_WINDOW_BIT,  // Very important
                     EGL10.EGL_RED_SIZE, 8,
                     EGL10.EGL_GREEN_SIZE, 8,
                     EGL10.EGL_BLUE_SIZE, 8,
@@ -146,14 +148,24 @@ class VideoCaptureGlThread extends GLSurfaceView {
                 EGLConfig config, Object nativeWindow) {
             Log.d(TAG, "createWindowSurface");
             int[] eglSurfaceAttribList = {
-                    //EGL10.EGL_WIDTH, 1024,                     (GL2CameraEye)
-                    //EGL10.EGL_HEIGHT, 1024,
                     EGL10.EGL_NONE
             };
-            //return egl.eglCreatePbufferSurface(                (GL2CameraEye)
-            //        display, config, eglSurfaceAttribList);
-            return egl.eglCreateWindowSurface(
-                    display, config, nativeWindow, eglSurfaceAttribList);
+            // NOTE(mcasas): We need a context created before we can create and
+            // configure the textures. But for the context to be created, a
+            // Surface, SurfaceTexture, SurfaceHolder or SurfaceView is needed,
+            // by preference the second, and to create a SurfaceTexture, a
+            // texture id is needed! Circular dependency!
+            // Hack: hardcode texture id to number 2, create a SurfaceTexture
+            // with that id, and use it to create a context. Alternative idea:
+            // Make a context with a Pbuffer and change it to FBO-WindowSurface
+            // afterwards.
+            mRenderSurfaceTexture = new SurfaceTexture(mFboRenderTextureID);
+            mRenderSurfaceTexture.setDefaultBufferSize(1024, 1024);
+            return egl.eglCreateWindowSurface(display,
+                    config,
+                    mRenderSurfaceTexture,
+                    eglSurfaceAttribList);
+            // GLSurfaceView will do a check and an eglMakeCurrent() after this.
         }
         public void destroySurface(EGL10 egl,
                 EGLDisplay display,

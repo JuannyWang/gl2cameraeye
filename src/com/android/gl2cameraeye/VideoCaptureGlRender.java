@@ -49,6 +49,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     private boolean mUpdateSurface = false;
 
     private boolean mStatusOk;
+    private boolean mInitialized = false;
 
     //private Handler mGLThreadHandler;
     private ByteBuffer mPixelBuf;
@@ -119,7 +120,8 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
             int width,
             int height,
             int renderTextureID) {
-        Log.d(TAG, "constructor");
+        Log.d(TAG, "constructor, using " +
+                ((mRenderTextureID == -1) ? "Pbuffer" : "FBO"));
         mContext = context;  // Needed for getting device orientation.
         mVideoCapture = videoCapture;  // Needed for pixels read callback.
         mCamera = camera;
@@ -127,6 +129,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         mHeight = height;
         mRenderTextureID = renderTextureID;
         mStatusOk = true;
+        mInitialized = false;
     }
 
     public boolean shutdown() {
@@ -230,11 +233,15 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         Matrix.frustumM(mProjMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
 
         if (mRenderTextureID != -1) {
-            createFramebufferObjectTexture(mRenderTextureID);
-            createFramebufferObject(mRenderTextureID);
+            if (!createFramebufferObjectTexture(mRenderTextureID) ||
+                        !createFramebufferObject(mRenderTextureID)) {
+                mStatusOk = false;
+                return;
+            }
         }
 
         if (!createVideoCaptureSurfaceTexture()) {
+            Log.e(TAG, " onSurfaceCreated: Capture surface texture failed");
             mStatusOk = false;
             return;
         }
@@ -243,7 +250,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         try {
             mCamera.setPreviewTexture(mCaptureSurfaceTexture);
         } catch (IOException ex) {
-            Log.e(TAG, "setPreviewTexture: " + ex);
+            Log.e(TAG, " setPreviewTexture: " + ex);
             mStatusOk = false;
             return;
         }
@@ -253,6 +260,8 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         // to post tasks from onFrameAvailable() later on.
         Looper.prepare();
         //mGLThreadHandler = new Handler();
+        Log.d(TAG, "onSurfaceCreated finished.");
+        mInitialized = true;
     }
 
     public void onSurfaceChanged(GL10 gl_unused, int width, int height) {
@@ -266,11 +275,14 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         // TODO(mcasas): Perhaps this should be post(new Runnable(...)) instead
         // but then the onDrawFrame will run like crazy, not stopped in the
         // synchronize(this).
+        if (!mInitialized) {
+            return;
+        }
         synchronized (this) {
             if (mUpdateSurface) {
                 onDrawFrameProtected();
-                mUpdateSurface = false;
             }
+            mUpdateSurface = false;
         }
     }
 
@@ -308,7 +320,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
 
         // Create a rotation for the geometry.
         float vflip = -1.0f;
-        int orientation = 0;//getDeviceOrientation();  //TODO
+        int orientation = getDeviceOrientation();  //TODO
 
         Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
 
@@ -360,6 +372,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     }
 
     private boolean createFramebufferObjectTexture(int renderTextureID) {
+        Log.d(TAG, "createFramebufferObjectTexture");
         // Create and allocate a normal texture, that will be used to render the
         // capture texture id onto. This is a hack but there's an explanation in
         // createEGLContext().
@@ -404,9 +417,9 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         dumpGLErrorIfAny("glFramebufferTexture2D");
         if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
                 GLES20.GL_FRAMEBUFFER_COMPLETE) {
-            Log.e(TAG, " Created Framebuffer and attached to texture");
+            Log.e(TAG, " Created FBO and attached to texture");
         } else {
-            Log.d(TAG, " Framebuffer created and attached to texture.");
+            Log.d(TAG, " FBO created and attached to texture.");
         }
 
         return true;
