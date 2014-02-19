@@ -84,7 +84,7 @@ class VideoCaptureGlThread extends GLSurfaceView {
             Log.d(TAG, "chooseConfig");
             int[] eglConfigSpec = {
                     EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                    //EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important
+                    //EGL10.EGL_SURFACE_TYPE, EGL10.EGL_PBUFFER_BIT,  // Very important (GL2CameraEye)
                     EGL10.EGL_RED_SIZE, 8,
                     EGL10.EGL_GREEN_SIZE, 8,
                     EGL10.EGL_BLUE_SIZE, 8,
@@ -150,7 +150,7 @@ class VideoCaptureGlThread extends GLSurfaceView {
                     //EGL10.EGL_HEIGHT, 1024,
                     EGL10.EGL_NONE
             };
-            //return egl.eglCreatePbufferSurface(
+            //return egl.eglCreatePbufferSurface(                (GL2CameraEye)
             //        display, config, eglSurfaceAttribList);
             return egl.eglCreateWindowSurface(
                     display, config, nativeWindow, eglSurfaceAttribList);
