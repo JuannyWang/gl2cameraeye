@@ -28,7 +28,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * are invoked by this owner, including the callback OnPreviewFrame().
  **/
 //@JNINamespace("media")
-public class VideoCapture implements PreviewCallback {
+public class VideoCapture implements PreviewCallback,
+        VideoCaptureGlRender.OnCapturedFrameListener {
     static class CaptureFormat {
         public CaptureFormat(
                 int width, int height, int framerate, int pixelformat) {
@@ -295,7 +296,6 @@ public class VideoCapture implements PreviewCallback {
             Log.d(TAG, "Image stabilization not supported.");
         }
 
-
         // Allocate a VideoCaptureGlThread, that will create an off-screen
         // context and an associated GLThread. It will also create the GLES GLSL
         // renderer to capture from the camera. Do not create here the special
@@ -330,7 +330,6 @@ public class VideoCapture implements PreviewCallback {
             mCamera.addCallbackBuffer(buffer);
         }
         mExpectedFrameSize = bufSize;
-
 
         return true;
     }
@@ -473,7 +472,8 @@ public class VideoCapture implements PreviewCallback {
     // TODO(wjia): investigate whether reading from texture could give better
     // performance and frame rate, using onFrameAvailable().
 
-    public void onCaptureFrameAsBuffer(byte[] data, int data_size) {
+    @Override
+    public void onCapturedFrame(byte[] data, int data_size) {
         mPreviewBufferLock.lock();
         try {  // Nobody receives the buffer (GL2CameraEye)
             //nativeOnFrameAvailable(

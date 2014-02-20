@@ -29,7 +29,7 @@ class VideoCaptureGlThread extends GLSurfaceView {
     private static final String TAG = "VideoCaptureGlThread";
 
     public VideoCaptureGlThread(Context context,
-            VideoCapture videoCapture,
+            VideoCaptureGlRender.OnCapturedFrameListener frameListener,
             Camera camera,
             int width,
             int height) {
@@ -50,13 +50,14 @@ class VideoCaptureGlThread extends GLSurfaceView {
         // ID of the texture to use for the FrameBuffer Object rendering.
         mFboRenderTextureID = -1;
         mVideoCaptureGlRender = new VideoCaptureGlRender(context,
-                videoCapture,
+                frameListener,
                 camera,
+                this,
                 mWidth,
                 mHeight,
                 mFboRenderTextureID);
         setRenderer(mVideoCaptureGlRender);
-        setRenderMode(RENDERMODE_CONTINUOUSLY);
+        setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
 
     @Override

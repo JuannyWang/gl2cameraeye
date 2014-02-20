@@ -40,12 +40,17 @@ import javax.microedition.khronos.opengles.GL10;
  */
 class VideoCaptureGlRender implements GLSurfaceView.Renderer,
                                       SurfaceTexture.OnFrameAvailableListener {
+
+    public interface OnCapturedFrameListener {
+        public void onCapturedFrame(byte[] data, int data_size);
+    }
+
     private Context mContext;
-    private VideoCapture mVideoCapture;
+    private OnCapturedFrameListener mFrameListener;
     private Camera mCamera;
+    private GLSurfaceView mGlSurfaceView;
     private int mWidth;
     private int mHeight;
-    private boolean mUpdateSurface = false;
 
     private boolean mStatusOk;
     private boolean mInitialized = false;
@@ -106,23 +111,25 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         "varying vec2 vTextureCoord;\n" +
         "uniform samplerExternalOES sTexture;\n" +
         "void main() {\n" +
-        "  gl_FragColor = texture2D(sTexture, vTextureCoord).rgba;\n" +
+        "  gl_FragColor = texture2D(sTexture, vTextureCoord).rgba;\n" +  // (GL2CameraEye)
         "}\n";
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
     private static final String TAG = "VideoCaptureGlRender";
 
     public VideoCaptureGlRender(Context context,
-            VideoCapture videoCapture,
+            OnCapturedFrameListener frameListener,
             Camera camera,
+            GLSurfaceView glSurfaceView,
             int width,
             int height,
             int renderTextureID) {
         Log.d(TAG, "constructor, using " +
                 ((mRenderTextureID == -1) ? "Pbuffer" : "FBO"));
         mContext = context;  // Needed for getting device orientation.
-        mVideoCapture = videoCapture;  // Needed for pixels read callback.
+        mFrameListener = frameListener;
         mCamera = camera;
+        mGlSurfaceView = glSurfaceView;
         mWidth = width;
         mHeight = height;
         mRenderTextureID = renderTextureID;
@@ -143,26 +150,22 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         return mStatusOk;
     }
 
-    public synchronized void onFrameAvailable(SurfaceTexture surfaceTexture) {
+    @Override
+    public void onFrameAvailable(SurfaceTexture surfaceTexture) {
         // SurfaceTexture calls here when it has new data available. No OpenGL
-        // ES operations can be done here, particularly it is forbidden to to
-        // SurfaceTexture.updateTexImage(). Either synchronize or post a
-        // Runnable to the thread ownning the on/off-screen rendering context:
-        //      mGLThreadHandler.post(new Runnable() { @Override
-        //          public void run() {
-        //              onDrawFrame(null);
-        //          }
-        //      });
-        // (Anecdotically, it's been seen that Thread.currentThread().toString()
-        // gives "main" as calling thread).
-        Log.d(TAG, "onFrameAvailable @ " + Thread.currentThread().toString());
-        mUpdateSurface = true;
+        // ES operations can be done here, particularly it is forbidden to try
+        // SurfaceTexture.updateTexImage(). No need to post a Runnable to the 
+        // thread ownning the on/off-screen rendering context though, instead
+        // we request a render iteration to GLThread, that must be configured to
+        // RENDERMODE_WHEN_DIRTY.
+        mGlSurfaceView.requestRender();
     }
 
     // Synchronous method that creates all necessary Open GL ES 2.0 variables
     // for rendering into the current context. The special Video Capture texture
     // and associated SurfaceTexture are also created.
     // If a renderTextureID is passed, an FBO is created and linked to it.
+    @Override
     public void onSurfaceCreated(GL10 gl_unused, EGLConfig config) {
         Log.d(TAG, "onSurfaceCreated");
         mTriangleVertices = ByteBuffer
@@ -260,6 +263,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         mInitialized = true;
     }
 
+    @Override
     public void onSurfaceChanged(GL10 gl_unused, int width, int height) {
         Log.d(TAG, "onSurfaceChanged: (" + width + "x" + height + ")");
         GLES20.glViewport(0, 0, width, height);
@@ -267,27 +271,17 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         Matrix.frustumM(mProjMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
     }
 
+    @Override
     public void onDrawFrame(GL10 gl_unused) {
-        // TODO(mcasas): Perhaps this should be post(new Runnable(...)) instead
-        // but then the onDrawFrame will run like crazy, not stopped in the
-        // synchronize(this).
         if (!mInitialized) {
             return;
         }
-        synchronized (this) {
-            // If we hold the onDrawFrame, we get horrible jank on playback.
-            onDrawFrameProtected();
-        }
-    }
 
-    private void onDrawFrameProtected() {
         long timestamp = mCaptureSurfaceTexture.getTimestamp();
-        if (mUpdateSurface) {
-            Log.d(TAG, "frame received, updating texture, fps~=" +
-                    ((timestamp - mPreviousTimestamp != 0) ?
-                            (1000000000L / (timestamp - mPreviousTimestamp)) :
-                            0L));
-        }
+        Log.d(TAG, "frame received, updating texture, fps~=" +
+                ((timestamp - mPreviousTimestamp != 0) ?
+                        (1000000000L / (timestamp - mPreviousTimestamp)) :
+                        0L));
         mPreviousTimestamp = timestamp;
 
         if (mRenderTextureID != -1) {
@@ -338,20 +332,16 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         dumpGLErrorIfAny("glDrawArrays");
 
         // Retrieve the pixels and dump the approximate elapsed time.
-        if (mUpdateSurface) {
-            long timeBeforeGlReadPixels = SystemClock.elapsedRealtimeNanos();
-            GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
-                    GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
-            mPixelBuf.rewind();
-            long timeAfterGlReadPixels = SystemClock.elapsedRealtimeNanos();
-            long elapsed_time =
-                    (timeAfterGlReadPixels - timeBeforeGlReadPixels) / 1000000;
-            Log.d(TAG, "glReadPixels elapsed time :" + elapsed_time + "ms");
+        long timeBeforeGlReadPixels = SystemClock.elapsedRealtimeNanos();
+        GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
+                GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
+        mPixelBuf.rewind();
+        long timeAfterGlReadPixels = SystemClock.elapsedRealtimeNanos();
+        long elapsed_time =
+                (timeAfterGlReadPixels - timeBeforeGlReadPixels) / 1000000;
+        Log.d(TAG, "glReadPixels elapsed time :" + elapsed_time + "ms");
 
-            mVideoCapture.onCaptureFrameAsBuffer(mPixelBuf.array(),
-                    mWidth * mHeight * 4);
-            mUpdateSurface = false;
-        }
+        mFrameListener.onCapturedFrame(mPixelBuf.array(), mWidth * mHeight * 4);
     }
 
     // Create and allocate the special texture id and associated SurfaceTexture
