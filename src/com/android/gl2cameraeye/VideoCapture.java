@@ -133,7 +133,7 @@ public class VideoCapture implements PreviewCallback,
     private int mDeviceOrientation = 0;
 
     CaptureFormat mCaptureFormat = null;
-    private VideoCaptureGlThread mVideoCaptureGlThread = null;
+    private VideoCaptureGlSurfaceView mVideoCaptureGlSurfaceView = null;
     private Looper mLooper = null;
     private static final String TAG = "VideoCapture";
 
@@ -296,18 +296,18 @@ public class VideoCapture implements PreviewCallback,
             Log.d(TAG, "Image stabilization not supported.");
         }
 
-        // Allocate a VideoCaptureGlThread, that will create an off-screen
+        // Allocate a VideoCaptureGlSurfaceView, that will create an off-screen
         // context and an associated GLThread. It will also create the GLES GLSL
         // renderer to capture from the camera. Do not create here the special
         // texture (GL_TEXTURE_EXTERNAL_OES) id and SurfaceTexture for plugging
         // into the Camera, since these need to be owned by the thread owning
         // the Egl context (unless the contexts are shared correctly).Finally,
         // Looper.prepare() must have been called before creating the
-        // VideoCaptureGlThread.
+        // VideoCaptureGlSurfaceView.
         if (Looper.myLooper() == null) {
             //Looper.prepare();               (GL2CameraEye)
         }
-        mVideoCaptureGlThread = new VideoCaptureGlThread(mContext,
+        mVideoCaptureGlSurfaceView = new VideoCaptureGlSurfaceView(mContext,
                 this,
                 mCamera,
                 mCaptureFormat.mWidth,
@@ -364,8 +364,8 @@ public class VideoCapture implements PreviewCallback,
 */
     }
 
-    public GLSurfaceView getVideoCaptureGlThread() {  // (GL2CameraEye)
-        return mVideoCaptureGlThread;
+    public GLSurfaceView getVideoCaptureGlSurfaceView() {  // (GL2CameraEye)
+        return mVideoCaptureGlSurfaceView;
     }
 
     //@CalledByNative
@@ -388,12 +388,12 @@ public class VideoCapture implements PreviewCallback,
         mCamera.setPreviewCallbackWithBuffer(null);
         mCamera.startPreview();
 
-        // Someone needs to notify the |mVideoCaptureGlThread| about underlying
-        // surface being ready. Since this is an off-screen rendering, we
-        // assume everything is ready right now.
+        // Someone needs to notify the |mVideoCaptureGlSurfaceView| about the
+        // underlying surface being ready. Since this is an off-screen
+        // rendering, we assume everything is ready right now.
         // Removed for (GL2CameraEye), this is exercised from the Activity.
-        //mVideoCaptureGlThread.surfaceCreated(this);
-        //mVideoCaptureGlThread.surfaceChanged(this,
+        //mVideoCaptureGlSurfaceView.surfaceCreated(this);
+        //mVideoCaptureGlSurfaceView.surfaceChanged(this,
         //        0,
         //        mCaptureFormat.mWidth,
         //        mCaptureFormat.mHeight);
@@ -434,7 +434,7 @@ public class VideoCapture implements PreviewCallback,
         mCaptureFormat = null;
         mCamera.release();
         mCamera = null;
-        mVideoCaptureGlThread.onPause();
+        mVideoCaptureGlSurfaceView.onPause();
         //mLooper.quit();  // Don't quit if we're the main loop (GL2CameraEye).
     }
 

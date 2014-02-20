@@ -16,19 +16,19 @@ import javax.microedition.khronos.egl.EGLContext;
 import javax.microedition.khronos.egl.EGLDisplay;
 import javax.microedition.khronos.egl.EGLSurface;
 
-/** VideoCaptureGlThread is a special type of GLSurfaceView: it provides an EGL
- * context allowing off-screen rendering on an Pixel Buffer (pbuffer). For that,
- * it implements its own EglConfigChooser(), EglContextFactory() and
+/** VideoCaptureGlSurfaceView is a special type of GLSurfaceView: it provides an
+ * EGL context allowing off-screen rendering on an Pixel Buffer (pbuffer). For
+ * that, it implements its own EglConfigChooser(), EglContextFactory() and
  * EglWindowSurfaceFactory().
  **/
-class VideoCaptureGlThread extends GLSurfaceView {
+class VideoCaptureGlSurfaceView extends GLSurfaceView {
     private static int mWidth, mHeight;
     private VideoCaptureGlRender mVideoCaptureGlRender = null;
     private static int mFboRenderTextureID;
     private static SurfaceTexture mRenderSurfaceTexture = null;
-    private static final String TAG = "VideoCaptureGlThread";
+    private static final String TAG = "VideoCaptureGlSurfaceView";
 
-    public VideoCaptureGlThread(Context context,
+    public VideoCaptureGlSurfaceView(Context context,
             VideoCaptureGlRender.OnCapturedFrameListener frameListener,
             Camera camera,
             int width,

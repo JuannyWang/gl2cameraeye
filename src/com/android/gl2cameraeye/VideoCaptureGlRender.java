@@ -154,7 +154,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
         // SurfaceTexture calls here when it has new data available. No OpenGL
         // ES operations can be done here, particularly it is forbidden to try
-        // SurfaceTexture.updateTexImage(). No need to post a Runnable to the 
+        // SurfaceTexture.updateTexImage(). No need to post a Runnable to the
         // thread ownning the on/off-screen rendering context though, instead
         // we request a render iteration to GLThread, that must be configured to
         // RENDERMODE_WHEN_DIRTY.
@@ -194,32 +194,32 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         }
 
         maPositionHandle = GLES20.glGetAttribLocation(mProgram, "aPosition");
-        dumpGLErrorIfAny("glGetAttribLocation aPosition");
+        dumpGlError("glGetAttribLocation aPosition");
         if (maPositionHandle == -1) {
             mStatusOk = false;
             return;
         }
         maTextureHandle = GLES20.glGetAttribLocation(mProgram, "aTextureCoord");
-        dumpGLErrorIfAny("glGetAttribLocation aTextureCoord");
+        dumpGlError("glGetAttribLocation aTextureCoord");
         if (maTextureHandle == -1) {
             mStatusOk = false;
             return;
         }
 
         muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix");
-        dumpGLErrorIfAny("glGetUniformLocation uMVPMatrix");
+        dumpGlError("glGetUniformLocation uMVPMatrix");
         if (muMVPMatrixHandle == -1) {
             mStatusOk = false;
             return;
         }
         muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix");
-        dumpGLErrorIfAny("glGetUniformLocation uSTMatrix");
+        dumpGlError("glGetUniformLocation uSTMatrix");
         if (muSTMatrixHandle == -1) {
             mStatusOk = false;
             return;
         }
         muCRatioHandle = GLES20.glGetUniformLocation(mProgram, "uCRatio");
-        dumpGLErrorIfAny("glGetUniformLocation uCRatio");
+        dumpGlError("glGetUniformLocation uCRatio");
         if (muCRatioHandle == -1) {
             mStatusOk = false;
             return;
@@ -286,7 +286,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
 
         if (mRenderTextureID != -1) {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
-            dumpGLErrorIfAny("glBindFramebuffer");
+            dumpGlError("glBindFramebuffer");
 
             GLES20.glActiveTexture(mRenderTextureID);
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
@@ -297,7 +297,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
 
         GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
         GLES20.glUseProgram(mProgram);
-        dumpGLErrorIfAny("glUseProgram");
+        dumpGlError("glUseProgram");
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mCaptureTextureID);
@@ -305,16 +305,16 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         mTriangleVertices.position(TRIANGLE_VERTICES_DATA_POS_OFFSET);
         GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT,
                 false, TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
-        dumpGLErrorIfAny("glVertexAttribPointer maPosition");
+        dumpGlError("glVertexAttribPointer maPosition");
         GLES20.glEnableVertexAttribArray(maPositionHandle);
-        dumpGLErrorIfAny("glEnableVertexAttribArray maPositionHandle");
+        dumpGlError("glEnableVertexAttribArray maPositionHandle");
 
         mTriangleVertices.position(TRIANGLE_VERTICES_DATA_UV_OFFSET);
         GLES20.glVertexAttribPointer(maTextureHandle, 3, GLES20.GL_FLOAT, false,
                 TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
-        dumpGLErrorIfAny("glVertexAttribPointer maTextureHandle");
+        dumpGlError("glVertexAttribPointer maTextureHandle");
         GLES20.glEnableVertexAttribArray(maTextureHandle);
-        dumpGLErrorIfAny("glEnableVertexAttribArray maTextureHandle");
+        dumpGlError("glEnableVertexAttribArray maTextureHandle");
 
         // Create a rotation for the geometry. The camera orientation in -90 deg
         // out of phase with what Android considers 0 deg.
@@ -329,7 +329,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         GLES20.glUniform1f(muCRatioHandle, (float) mWidth / mHeight);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-        dumpGLErrorIfAny("glDrawArrays");
+        dumpGlError("glDrawArrays");
 
         // Retrieve the pixels and dump the approximate elapsed time.
         long timeBeforeGlReadPixels = SystemClock.elapsedRealtimeNanos();
@@ -352,7 +352,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         mCaptureTextureID = mGlTextures[0];
 
         GLES20.glBindTexture(GL_TEXTURE_EXTERNAL_OES, mGlTextures[0]);
-        dumpGLErrorIfAny("glBindTextures");
+        dumpGlError("glBindTextures");
         GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
                 GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
         GLES20.glTexParameterf(GL_TEXTURE_EXTERNAL_OES,
@@ -403,9 +403,9 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
 
         mFramebuffer = new int[1];
         GLES20.glGenFramebuffers(1, mFramebuffer, 0);
-        dumpGLErrorIfAny("glGenFramebuffers");
+        dumpGlError("glGenFramebuffers");
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
-        dumpGLErrorIfAny("glBindFramebuffer");
+        dumpGlError("glBindFramebuffer");
         // Qualcomm recommends clear after glBindFrameBuffer().
         GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
         GLES20.glClearDepthf(1.0f);
@@ -417,7 +417,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
                                       GLES20.GL_TEXTURE_2D,
                                       renderTextureID,
                                       0);
-        dumpGLErrorIfAny("glFramebufferTexture2D");
+        dumpGlError("glFramebufferTexture2D");
         if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) !=
                 GLES20.GL_FRAMEBUFFER_COMPLETE) {
             Log.e(TAG, " Created FBO and attached to texture");
@@ -444,9 +444,9 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         int program = GLES20.glCreateProgram();
         if (program != 0) {
             GLES20.glAttachShader(program, vertexShader);
-            dumpGLErrorIfAny("glAttachShader");
+            dumpGlError("glAttachShader");
             GLES20.glAttachShader(program, pixelShader);
-            dumpGLErrorIfAny("glAttachShader");
+            dumpGlError("glAttachShader");
             GLES20.glLinkProgram(program);
             int[] linkStatus = new int[1];
             GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
@@ -508,7 +508,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         return orientation;
     }
 
-    private void dumpGLErrorIfAny(String op) {
+    private void dumpGlError(String op) {
         int error;
         while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR)
             Log.e(TAG, "** " + op + ": glError " + error);
