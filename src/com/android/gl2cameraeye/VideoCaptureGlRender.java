@@ -265,9 +265,9 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     }
 
     public void onSurfaceChanged(GL10 gl_unused, int width, int height) {
-        Log.d(TAG, "onSurfaceChanged");
+        Log.d(TAG, "onSurfaceChanged: (" + width + "x" + height + ")");
         GLES20.glViewport(0, 0, width, height);
-        int ratio = (int)((float) width / (float)height);
+        float ratio = ((float) width / (float)height);
         Matrix.frustumM(mProjMatrix, 0, -ratio, ratio, -1, 1, 3, 7);
     }
 
