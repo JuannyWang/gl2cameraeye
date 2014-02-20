@@ -47,7 +47,7 @@ class VideoCaptureGlThread extends GLSurfaceView {
 
         // mFboRenderTextureID == -1 means use Pixel buffer, otherwise is the
         // ID of the texture to use for the FrameBuffer Object rendering.
-        mFboRenderTextureID = 2;
+        mFboRenderTextureID = -1;
         mVideoCaptureGlRender = new VideoCaptureGlRender(context,
                 videoCapture,
                 camera,
@@ -83,10 +83,14 @@ class VideoCaptureGlThread extends GLSurfaceView {
         static final int EGL_OPENGL_ES2_BIT = 4;
 
         public EGLConfig chooseConfig(EGL10 egl, EGLDisplay display) {
-            Log.d(TAG, "chooseConfig");
+            Log.d(TAG, "chooseConfig " +
+                    ((mFboRenderTextureID != -1) ? "FBO" : "Window"));
+
+            int surfaceType = (mFboRenderTextureID != -1) ?
+                    EGL10.EGL_PBUFFER_BIT : EGL10.EGL_WINDOW_BIT;
             int[] eglConfigSpec = {
                     EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-                    EGL10.EGL_SURFACE_TYPE, EGL10.EGL_WINDOW_BIT,  // Very important
+                    EGL10.EGL_SURFACE_TYPE, surfaceType,  // Very important
                     EGL10.EGL_RED_SIZE, 8,
                     EGL10.EGL_GREEN_SIZE, 8,
                     EGL10.EGL_BLUE_SIZE, 8,
@@ -147,24 +151,35 @@ class VideoCaptureGlThread extends GLSurfaceView {
         public EGLSurface createWindowSurface(EGL10 egl, EGLDisplay display,
                 EGLConfig config, Object nativeWindow) {
             Log.d(TAG, "createWindowSurface");
-            int[] eglSurfaceAttribList = {
-                    EGL10.EGL_NONE
-            };
-            // NOTE(mcasas): We need a context created before we can create and
-            // configure the textures. But for the context to be created, a
-            // Surface, SurfaceTexture, SurfaceHolder or SurfaceView is needed,
-            // by preference the second, and to create a SurfaceTexture, a
-            // texture id is needed! Circular dependency!
-            // Hack: hardcode texture id to number 2, create a SurfaceTexture
-            // with that id, and use it to create a context. Alternative idea:
-            // Make a context with a Pbuffer and change it to FBO-WindowSurface
-            // afterwards.
-            mRenderSurfaceTexture = new SurfaceTexture(mFboRenderTextureID);
-            mRenderSurfaceTexture.setDefaultBufferSize(1024, 1024);
-            return egl.eglCreateWindowSurface(display,
-                    config,
-                    mRenderSurfaceTexture,
-                    eglSurfaceAttribList);
+            if (mFboRenderTextureID == -1) {
+                int[] eglSurfaceAttribList = {
+                        //EGL10.EGL_WIDTH, 1024,                 (GL2CameraEye)
+                        //EGL10.EGL_HEIGHT, 1024,
+                        EGL10.EGL_NONE
+                };
+                //return egl.eglCreatePbufferSurface(            (GL2CameraEye)
+                //        display, config, eglSurfaceAttribList);
+                return egl.eglCreateWindowSurface(
+                        display, config, nativeWindow, eglSurfaceAttribList);
+            } else {
+                int[] eglSurfaceAttribList = {
+                        EGL10.EGL_NONE
+                };
+                // NOTE(mcasas): We need a context created before we can create
+                // and configure the textures. But for the context to be
+                // created, a Surface, SurfaceTexture, SurfaceHolder or
+                // SurfaceView is needed, by preference the second, and to
+                // create a SurfaceTexture, a texture id is needed! Circular
+                // dependency!
+                // Hack: hardcode texture id to number 2, create a
+                // SurfaceTexture with that id, and use it to create a context.
+                mRenderSurfaceTexture = new SurfaceTexture(mFboRenderTextureID);
+                mRenderSurfaceTexture.setDefaultBufferSize(1024, 1024);
+                return egl.eglCreateWindowSurface(display,
+                        config,
+                        mRenderSurfaceTexture,
+                        eglSurfaceAttribList);
+            }
             // GLSurfaceView will do a check and an eglMakeCurrent() after this.
         }
         public void destroySurface(EGL10 egl,

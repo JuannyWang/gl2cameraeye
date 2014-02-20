@@ -186,6 +186,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+        GLES20.glClearDepthf(1.0f);
 
         // Set up shaders and handles to their variables.
         mProgram = createProgram(mVertexShader, mFragmentShader);
@@ -294,6 +295,11 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
                         0L));
         mPreviousTimestamp = timestamp;
 
+        if (mRenderTextureID != -1) {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
+            dumpGLErrorIfAny("glBindFramebuffer");
+        }
+
         mCaptureSurfaceTexture.updateTexImage();
         mCaptureSurfaceTexture.getTransformMatrix(mSTMatrix);
 
@@ -318,11 +324,10 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         GLES20.glEnableVertexAttribArray(maTextureHandle);
         dumpGLErrorIfAny("glEnableVertexAttribArray maTextureHandle");
 
-        // Create a rotation for the geometry.
-        float vflip = -1.0f;
-        int orientation = getDeviceOrientation();  //TODO
-
-        Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, vflip);
+        // Create a rotation for the geometry. The camera orientation in -90 deg
+        // out of phase with what Android considers 0 deg.
+        int orientation = getDeviceOrientation() - 90;
+        Matrix.setRotateM(mRotationMatrix, 0, orientation, 0, 0, 1.0f);
 
         Matrix.multiplyMM(mMVPMatrix, 0, mProjMatrix, 0, mRotationMatrix, 0);
         Matrix.multiplyMM(mMVPMatrix, 0, mMVPMatrix, 0, mVMatrix, 0);
@@ -406,6 +411,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         dumpGLErrorIfAny("glBindFramebuffer");
         // Qualcomm recommends clear after glBindFrameBuffer().
         GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
+        GLES20.glClearDepthf(1.0f);
 
         ////////////////////////////////////////////////////////////////////////
         // Bind the texture to the generated Framebuffer Object.
