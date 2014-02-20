@@ -18,7 +18,6 @@ import android.view.WindowManager;
 //import org.chromium.base.JNINamespace;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 

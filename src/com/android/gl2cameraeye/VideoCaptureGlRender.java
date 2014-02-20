@@ -10,7 +10,6 @@ import android.hardware.Camera;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
-import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
@@ -51,7 +50,6 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     private boolean mStatusOk;
     private boolean mInitialized = false;
 
-    //private Handler mGLThreadHandler;
     private ByteBuffer mPixelBuf;
     private long mPreviousTimestamp = 0;
 
@@ -108,7 +106,7 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         "varying vec2 vTextureCoord;\n" +
         "uniform samplerExternalOES sTexture;\n" +
         "void main() {\n" +
-        "  gl_FragColor = texture2D(sTexture, vTextureCoord).argb;\n" +
+        "  gl_FragColor = texture2D(sTexture, vTextureCoord).rgba;\n" +
         "}\n";
 
     private static final int GL_TEXTURE_EXTERNAL_OES = 0x8D65;
@@ -147,18 +145,17 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
 
     public synchronized void onFrameAvailable(SurfaceTexture surfaceTexture) {
         // SurfaceTexture calls here when it has new data available. No OpenGL
-        // ES operationss can be done here, particularly
-        // SurfaceTexture.updateTexImage() is forbidden. Instead post a Runnable
-        // to the thread ownning the on/off-screen rendering context.
+        // ES operations can be done here, particularly it is forbidden to to
+        // SurfaceTexture.updateTexImage(). Either synchronize or post a
+        // Runnable to the thread ownning the on/off-screen rendering context:
+        //      mGLThreadHandler.post(new Runnable() { @Override
+        //          public void run() {
+        //              onDrawFrame(null);
+        //          }
+        //      });
         // (Anecdotically, it's been seen that Thread.currentThread().toString()
         // gives "main" as calling thread).
         Log.d(TAG, "onFrameAvailable @ " + Thread.currentThread().toString());
-//        mGLThreadHandler.post(new Runnable() {
-//            @Override
-//            public void run() {
-//                onDrawFrame(null);
-//            }
-//        });
         mUpdateSurface = true;
     }
 
@@ -181,8 +178,6 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         mPos[1] = 0.f;
         mPos[2] = 0.f;
 
-        // Set up alpha blending and an Android background color.
-        GLES20.glEnable(GLES20.GL_BLEND);
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST);
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glClearColor(0.643f, 0.776f, 0.223f, 1.0f);
@@ -280,24 +275,27 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
             return;
         }
         synchronized (this) {
-            if (mUpdateSurface) {
-                onDrawFrameProtected();
-            }
-            mUpdateSurface = false;
+            // If we hold the onDrawFrame, we get horrible jank on playback.
+            onDrawFrameProtected();
         }
     }
 
     private void onDrawFrameProtected() {
         long timestamp = mCaptureSurfaceTexture.getTimestamp();
-        Log.d(TAG, "frame received, updating texture, fps~=" +
-                ((timestamp - mPreviousTimestamp != 0) ?
-                        (1000000000L / (timestamp - mPreviousTimestamp)) :
-                        0L));
+        if (mUpdateSurface) {
+            Log.d(TAG, "frame received, updating texture, fps~=" +
+                    ((timestamp - mPreviousTimestamp != 0) ?
+                            (1000000000L / (timestamp - mPreviousTimestamp)) :
+                            0L));
+        }
         mPreviousTimestamp = timestamp;
 
         if (mRenderTextureID != -1) {
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, mFramebuffer[0]);
             dumpGLErrorIfAny("glBindFramebuffer");
+
+            GLES20.glActiveTexture(mRenderTextureID);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mRenderTextureID);
         }
 
         mCaptureSurfaceTexture.updateTexImage();
@@ -340,18 +338,20 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
         dumpGLErrorIfAny("glDrawArrays");
 
         // Retrieve the pixels and dump the approximate elapsed time.
-        long currentTimeGlReadPixels1 = SystemClock.elapsedRealtimeNanos();
-        GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
-                GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
-        mPixelBuf.rewind();
-        long currentTimeGlReadPixels2 = SystemClock.elapsedRealtimeNanos();
-        long elapsed_time =
-                (currentTimeGlReadPixels2 - currentTimeGlReadPixels1) / 1000000;
-        Log.d(TAG, "glReadPixels elapsed time :" + elapsed_time + "ms");
+        if (mUpdateSurface) {
+            long timeBeforeGlReadPixels = SystemClock.elapsedRealtimeNanos();
+            GLES20.glReadPixels(0, 0, mWidth, mHeight, GLES20.GL_RGBA,
+                    GLES20.GL_UNSIGNED_BYTE, mPixelBuf);
+            mPixelBuf.rewind();
+            long timeAfterGlReadPixels = SystemClock.elapsedRealtimeNanos();
+            long elapsed_time =
+                    (timeAfterGlReadPixels - timeBeforeGlReadPixels) / 1000000;
+            Log.d(TAG, "glReadPixels elapsed time :" + elapsed_time + "ms");
 
-        mVideoCapture.onCaptureFrameAsBuffer(mPixelBuf.array(),
-                                             mWidth * mHeight * 4);
-
+            mVideoCapture.onCaptureFrameAsBuffer(mPixelBuf.array(),
+                    mWidth * mHeight * 4);
+            mUpdateSurface = false;
+        }
     }
 
     // Create and allocate the special texture id and associated SurfaceTexture
@@ -377,11 +377,13 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
     }
 
     private boolean createFramebufferObjectTexture(int renderTextureID) {
-        Log.d(TAG, "createFramebufferObjectTexture");
+        Log.d(TAG, "createFramebufferObjectTexture, id:" + renderTextureID);
         // Create and allocate a normal texture, that will be used to render the
         // capture texture id onto. This is a hack but there's an explanation in
         // createEGLContext().
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, renderTextureID);
+        GLES20.glHint(renderTextureID, GLES20.GL_FASTEST);
+
         GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
         GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D,
@@ -390,19 +392,24 @@ class VideoCaptureGlRender implements GLSurfaceView.Renderer,
                 GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D,
                 GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-        // The width and height here are in texel size, not in pixels.
-        int size_texels = 128;
+        // The width and height must be a power of 2, and can be different.
+        int width_texels = Integer.highestOneBit(mWidth) << 1;
+        int height_texels = Integer.highestOneBit(mHeight) << 1;
         GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA,
-            size_texels, size_texels, 0, GLES20.GL_RGBA,
+            width_texels, height_texels, 0, GLES20.GL_RGBA,
             GLES20.GL_UNSIGNED_BYTE, null);
 
         return true;
     }
 
+    private void deleteFrameBufferObjectTexture() {
+        int[] textures = new int[1];
+        textures[0] = mRenderTextureID;
+        GLES20.glDeleteTextures(1, textures, 0);
+    }
+
     private boolean createFramebufferObject(int renderTextureID) {
-        if (renderTextureID == -1)
-            return true;
-        Log.d(TAG, "createFramebufferObject");
+        Log.d(TAG, "createFramebufferObject, tex id:" + renderTextureID);
 
         mFramebuffer = new int[1];
         GLES20.glGenFramebuffers(1, mFramebuffer, 0);
